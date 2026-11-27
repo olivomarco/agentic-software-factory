@@ -105,6 +105,8 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Risk gate | `.github/workflows/risk-gate.yml`, `.github/factory/risk-gate.cjs` | Risk labels, `factory/risk-gate` status, automatic merge |
 | PR labels | risk gate, `.github/labeler.yml` + `.github/workflows/labeler.yml`, `.github/release.yml` | Type labels from the linked ticket (or its spec) and the Conventional Commits title (`bug`, `enhancement`, `documentation`, `refactor`, `tests`, `ci`, `dependencies`), `door:one-way` from Merge Danger or a `!` title, path labels (`documentation`, `tests`, `ci`, `dependencies`, `factory`); release notes are grouped by them |
 | External timer | `scripts/factory-tick.sh`, `docs/external-timer.md` (+ Logic App definition) | Starts the dispatcher and gate sweeps every 10 minutes from a scheduler you trust; GitHub's own schedules stay as a fallback |
+| Alerts | `.github/workflows/alerts.yml`, `.github/factory/alerts.cjs` | @-mentions `FACTORY_OWNERS` on items labelled `agent:failed`, `factory:failure` or `needs-human` (once per time the label is added); opens and closes `[factory] … is failing` and `[factory] Agent session cap reached` issues; optional webhook |
+| Kill switch | `scripts/factory-pause.sh`, `vars.FACTORY_PAUSED` | `on`: no new agent sessions, fix rounds, triage re-runs or automatic merges; `--hard` also disables the factory workflows; `off` resumes |
 | Policy | `.github/factory/policy.cjs` (+ tests) | Pure rules shared by both scripts |
 | Code review | `.github/skills/code-review/SKILL.md` | Copilot code review: Standards and Spec axes, reads the ticket and its parent spec |
 | Review fix loop | `.github/factory/dispatch.cjs` (step 4) | `@copilot` addresses Copilot's comments, `FACTORY_MAX_FIX_ROUNDS` times, then `needs-human`; also `needs-human` when a round ends without a new commit |
@@ -189,6 +191,9 @@ read/write works too.
 | Variable | Default | Effect |
 |---|---|---|
 | `FACTORY_MAX_ACTIVE` | 3 | Tickets the cloud agent works on at once |
+| `FACTORY_PAUSED` | unset | `true` pauses the factory (see Kill switch); set it with `scripts/factory-pause.sh` |
+| `FACTORY_MAX_SESSIONS_PER_DAY` | 20 | Cloud agent sessions (assignments, retries, fix rounds, any other) that may start in 24 hours; `0` = no cap |
+| `FACTORY_OWNERS` | the repository owner (personal repos) | Users or `@org/team` the alerts @-mention, comma-separated |
 | `FACTORY_MAX_FIX_ROUNDS` | 2 | Times the dispatcher asks `@copilot` to address a review before `needs-human` |
 | `FACTORY_REQUIRED_CHECKS` | `test,tests-bite` | Checks that must pass before an automatic merge |
 | `FACTORY_START_CMD` | `npm start` | Command the Evidence workflow starts the app with (it sets `PORT`) |
@@ -274,6 +279,13 @@ operation add the external timer (`docs/external-timer.md`); the schedule is
 then the last safety net.
 The cockpit also lists every workflow whose latest run in the last 24 hours
 failed, with **Re-run failed jobs**.
+
+Nobody has to watch for these: the Alerts workflow @-mentions the owners on
+every item that ends up waiting for a human and opens an issue while a factory
+workflow keeps failing or the daily session cap holds work back. To stop
+everything at once (a runaway loop, a bad release of the agent, a budget
+scare), run `scripts/factory-pause.sh on` (add `--hard` to also disable the
+workflows), and `off` to resume.
 
 Re-running a gh-aw run partway is safe for triage, `/spec` and dispatch, which
 redo their work. `plan` stops when the spec already has sub-issues, but
@@ -374,6 +386,13 @@ off for team repositories.
   ticket to merged), counts reverts by `Revert` commit titles on the default
   branch, and counts a merged PR as human-handled when it carries `risk:high`,
   `needs-human` or `human-approved`. It reads at most the last 14 days.
+- Alerts are GitHub notifications (mail, web, mobile) plus an optional
+  webhook (`FACTORY_ALERT_WEBHOOK` secret, posted as `{"text": ...}`: Slack
+  incoming webhooks take it as is; for Teams, a "When a webhook request is
+  received" workflow that posts `text`). An org-owned repository needs
+  `FACTORY_OWNERS`, since an organisation cannot be mentioned.
+- The session cap counts the agent's runs; Copilot code review and gh-aw
+  runs are billed too but not counted.
 - `lane:local` only stops new assignments. Tickets the cloud agent already
   started finish on their own.
 

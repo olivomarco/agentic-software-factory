@@ -500,6 +500,36 @@ function scorecardTable(current, previous) {
   ].join("\n");
 }
 
+// Alerts (alerts.yml): items carrying one of these labels wait for a human.
+// Each label is announced once per time it is added; the alert comment
+// records which labels it covered.
+const ATTENTION_LABELS = ["agent:failed", "factory:failure", "needs-human"];
+const ALERT_MARKER = /<!-- factory:alert labels=([a-z0-9:,_-]*) -->/;
+const alertMarker = (labels) => `<!-- factory:alert labels=${labels.join(",")} -->`;
+
+// labels: names on the item; labeledAt: { label: ISO time it was last added };
+// alerts: [{ body, created_at }] written by the alerts workflow (comments, or
+// the body of an issue it opened). A label added within a minute after an
+// alert that covers it counts as covered (an issue created with its label).
+function alertDue({ labels, labeledAt = {}, alerts = [] }) {
+  return labels.filter((label) => {
+    if (!ATTENTION_LABELS.includes(label)) return false;
+    const covered = alerts
+      .filter((a) => (ALERT_MARKER.exec(a.body || "")?.[1] || "").split(",").includes(label))
+      .reduce((t, a) => Math.max(t, Date.parse(a.created_at)), 0);
+    if (!covered) return true;
+    return Date.parse(labeledAt[label] || 0) > covered + 60 * 1000;
+  });
+}
+
+// "@a, b, @org/team" -> "@a @b @org/team"
+const mentions = (owners) =>
+  (owners || "")
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((o) => (o.startsWith("@") ? o : `@${o}`))
+    .join(" ");
+
 module.exports = {
   issueStage,
   PROJECT_FIELDS,
@@ -531,6 +561,10 @@ module.exports = {
   ticketGate,
   scorecard,
   scorecardTable,
+  ATTENTION_LABELS,
+  alertMarker,
+  alertDue,
+  mentions,
   isTestFile,
   biteMode,
   biteVerdict,
