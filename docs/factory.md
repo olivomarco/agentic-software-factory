@@ -174,6 +174,9 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
   **Risk** (Low, High, from the risk gate's labels).
 - Views: **Factory** (board by Status), **Needs a human**, **Specs** (with
   parent issue and sub-issue progress) and **Pull requests**.
+- The board gets the repository's visibility (new projects start private)
+  and is linked to it. Its **default repository**, where issues created on
+  the board go, has no API: set it once under the project's Settings.
 
 `project-sync.yml` keeps it current: it adds every issue and pull request and
 sets the three fields from labels and state, after every issue event, after
