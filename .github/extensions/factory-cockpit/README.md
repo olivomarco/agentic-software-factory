@@ -2,7 +2,7 @@
 
 A side panel in Copilot CLI over the factory: the triage queue by stage, specs
 with their ticket trees and blockers, and open pull requests grouped by what the
-risk gate decided. It reads and acts through your signed-in `gh`, so every
+risk gate decided. Recently closed work is one click away. It reads and acts through your signed-in `gh`, so every
 change is made as you, with your permissions.
 
 ## Open it
@@ -34,12 +34,36 @@ another repository: "open the factory cockpit for OWNER/REPO".
 tickets the agent gave up on, failed triage, gh-aw failure reports and failed
 runs. See "When things fail" in `docs/factory.md`.
 
-The agent can drive the canvas too (`get_state`, `show`, and `run` for
+## Find things
+
+- **Open / Closed / All**, next to the search box, switches every tab between
+  open work and the 50 most recently closed issues, specs and pull requests
+  (done or not planned; merged or closed unmerged). The choice is remembered.
+- **Quick filters**, the chips under the search box, are per tab (Needs a human,
+  Agent, Blocked, Bugs… on the Queue; Low or High risk, Into `main`, Merged… on
+  PRs). Each one shows how many items it would leave and toggles a qualifier
+  in the search box, so you can see and edit what is applied.
+- **The search box** takes free text (number, title, label) and GitHub-style
+  qualifiers, which it suggests as you type (`Tab` or `Enter` to accept):
+
+  | Qualifier | Matches |
+  |---|---|
+  | `is:open`, `is:closed`, `is:merged`, `is:unmerged` | State |
+  | `is:done`, `is:wontfix` | Closed as completed (or merged), or as not planned |
+  | `is:human`, `is:agent`, `is:blocked`, `is:failed` | Waiting for a person, on the cloud agent, blocked, given up on |
+  | `is:spec`, `is:draft` | Specs, draft pull requests |
+  | `label:NAME`, `risk:low\|high`, `base:BRANCH`, `author:LOGIN`, `assignee:LOGIN` | As on GitHub; `base:` matches a prefix, so `base:factory/` is every spec branch |
+
+  Prefix any term with `-` to exclude it (`-label:bug`). Each tab keeps its own
+  filter.
+
+The agent can drive the canvas too (`get_state`, `show` with a tab, `state` and
+`filter`, and `run` for
 `spec`, `retriage`, `retriage-failed`, `gate-pr`, `dispatch`, `rerun-run`), but the gate buttons are
 deliberately not exposed to it: approving a spec, starting the agent and
 approving a risky PR stay a human click.
 
-Keyboard: `/` filters, `r` refreshes, `1` `2` `3` switch tabs, `Esc` clears. Rarely used actions
+Keyboard: `/` filters, `r` refreshes, `1` `2` `3` switch tabs, `o` `c` `a` show open, closed or all, `Esc` clears. Rarely used actions
 (Re-triage, Won't fix, Re-run gate) sit in each card's `⋯` menu; gate actions and Won't fix ask
 for confirmation in the panel.
 

@@ -78,21 +78,19 @@ async function failedRuns(repo) {
     }));
 }
 
-export async function loadState(repo) {
-  const [issues, prs, projectUrl, runs] = await Promise.all([
-    ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues?state=open&per_page=100`]),
-    ghJson([
-      "pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json",
-      "number,title,url,labels,baseRefName,headRefName,isDraft,author,reviewDecision,statusCheckRollup,additions,deletions,changedFiles",
-    ]),
-    gh(["variable", "get", "FACTORY_PROJECT_URL", "--repo", repo]).then((s) => s.trim()).catch(() => ""),
-    failedRuns(repo).catch(() => []),
-  ]);
+// How many recently closed issues and pull requests the cockpit shows.
+const CLOSED_LIMIT = 50;
 
-  const openIssues = issues.flat().filter((i) => !i.pull_request).map((i) => ({
+const isSpec = (i) => i.subIssues > 0 || i.labels.includes("spec") || i.stage === "spec" || i.stage === "approved";
+
+function issueOf(i) {
+  return {
     number: i.number,
     title: i.title,
     url: i.html_url,
+    state: i.state,
+    reason: i.state_reason || null,
+    closedAt: i.closed_at || null,
     labels: names(i.labels),
     stage: stage(names(i.labels)),
     assignees: i.assignees.map((a) => a.login),
@@ -100,31 +98,34 @@ export async function loadState(repo) {
     subIssues: i.sub_issues_summary?.total ?? 0,
     comments: i.comments,
     updated: i.updated_at,
-  }));
+  };
+}
 
-  const specs = [];
-  for (const spec of openIssues.filter((i) => i.subIssues > 0 || i.stage === "spec" || i.stage === "approved")) {
-    const subs = spec.subIssues
-      ? await ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues/${spec.number}/sub_issues?per_page=100`])
-      : [];
-    specs.push({
-      ...spec,
-      branch: `factory/spec-${spec.number}`,
-      tickets: subs.flat().map((t) => ({
-        number: t.number,
-        title: t.title,
-        url: t.html_url,
-        state: t.state,
-        labels: names(t.labels),
-        blockedBy: t.issue_dependencies_summary?.blocked_by ?? 0,
-      })),
-    });
-  }
+async function withTickets(repo, spec) {
+  const subs = spec.subIssues
+    ? await ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues/${spec.number}/sub_issues?per_page=100`])
+    : [];
+  return {
+    ...spec,
+    branch: `factory/spec-${spec.number}`,
+    tickets: subs.flat().map((t) => ({
+      number: t.number,
+      title: t.title,
+      url: t.html_url,
+      state: t.state,
+      labels: names(t.labels),
+      blockedBy: t.issue_dependencies_summary?.blocked_by ?? 0,
+    })),
+  };
+}
 
-  const pulls = prs.map((p) => ({
+function pullOf(p) {
+  return {
     number: p.number,
     title: p.title,
     url: p.url,
+    state: p.state === "MERGED" ? "merged" : p.state === "CLOSED" ? "closed" : "open",
+    closedAt: p.mergedAt || p.closedAt || null,
     labels: names(p.labels),
     base: p.baseRefName,
     head: p.headRefName,
@@ -134,9 +135,41 @@ export async function loadState(repo) {
     size: { additions: p.additions, deletions: p.deletions, files: p.changedFiles },
     risk: names(p.labels).find((l) => l.startsWith("risk:"))?.slice(5) ?? null,
     ...gateOf(p.statusCheckRollup),
-  }));
+  };
+}
 
-  return { repo, projectUrl, fetchedAt: new Date().toISOString(), issues: openIssues, specs, pulls, failedRuns: runs };
+// The most recently closed issues, specs and pull requests, for the cockpit's
+// Closed and All views. Kept apart from the open lists the factory acts on.
+async function loadClosed(repo) {
+  const [issues, prs] = await Promise.all([
+    ghJson(["api", `repos/${repo}/issues?state=closed&sort=updated&per_page=${CLOSED_LIMIT}`]),
+    ghJson([
+      "pr", "list", "--repo", repo, "--state", "closed", "--limit", String(CLOSED_LIMIT), "--json",
+      "number,title,url,labels,baseRefName,headRefName,isDraft,author,state,mergedAt,closedAt,additions,deletions,changedFiles",
+    ]),
+  ]);
+  const closedIssues = issues.filter((i) => !i.pull_request).map(issueOf);
+  const specs = await Promise.all(closedIssues.filter(isSpec).map((s) => withTickets(repo, s)));
+  return { issues: closedIssues, specs, pulls: prs.map(pullOf), limit: CLOSED_LIMIT };
+}
+
+export async function loadState(repo) {
+  const [issues, prs, projectUrl, runs, closed] = await Promise.all([
+    ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues?state=open&per_page=100`]),
+    ghJson([
+      "pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json",
+      "number,title,url,labels,baseRefName,headRefName,isDraft,author,reviewDecision,statusCheckRollup,additions,deletions,changedFiles",
+    ]),
+    gh(["variable", "get", "FACTORY_PROJECT_URL", "--repo", repo]).then((s) => s.trim()).catch(() => ""),
+    failedRuns(repo).catch(() => []),
+    loadClosed(repo).catch(() => null),
+  ]);
+
+  const openIssues = issues.flat().filter((i) => !i.pull_request).map(issueOf);
+  const specs = await Promise.all(openIssues.filter(isSpec).map((s) => withTickets(repo, s)));
+  const pulls = prs.map(pullOf);
+
+  return { repo, projectUrl, fetchedAt: new Date().toISOString(), issues: openIssues, specs, pulls, failedRuns: runs, closed };
 }
 
 // The only changes the cockpit makes: each one maps to a factory primitive.
