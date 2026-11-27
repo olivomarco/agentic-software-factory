@@ -112,6 +112,8 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Review fix loop | `.github/factory/dispatch.cjs` (step 4) | `@copilot` addresses Copilot's comments, `FACTORY_MAX_FIX_ROUNDS` times, then `needs-human`; also `needs-human` when a round ends without a new commit |
 | CI | `.github/workflows/ci.yml` | `test` (app) and `factory` (policy tests) |
 | Tests bite | `.github/workflows/tests-bite.yml`, `.github/factory/tests-bite.cjs` | `tests-bite` check: the test files a PR adds or changes must fail on the base branch and pass on the PR. Source changes without a test fail; `docs`/`refactor`/`test`/`ci`/`build` titles, PRs without source changes and integration PRs skip |
+| CodeQL | `.github/workflows/codeql.yml` | `analyze` check: CodeQL `security-extended` on the app (JavaScript/TypeScript) and on the factory's own workflows (`actions`), on every PR, on pushes to `main` and `factory/**`, and weekly. GitHub turns the results into a `CodeQL` check on the PR; the `code_scanning` ruleset rule blocks merging new high/critical security alerts or errors |
+| Dependency review | `.github/workflows/dependency-review.yml` | `dependency-review` check: fails a PR that adds a dependency with a known high or critical vulnerability |
 | Evidence | `.github/workflows/evidence.yml` + `evidence-publish.yml`, `.github/factory/evidence*.cjs` | For PRs touching `frontend/` or `backend/`: Playwright screenshots of the base branch and the PR (phone and desktop, light and dark), stored on the `factory-evidence` branch and posted as one Before/After comment. Taken by CI, not by the agent |
 | Implementer | `.github/agents/factory-implementer.agent.md` | Cloud agent: implement, tdd, code-review and pr skills, `Fixes #n` |
 | Environment | `scripts/bootstrap.sh`, `.devcontainer/devcontainer.json` | One setup for Codespaces, the cloud agent (`copilot-setup-steps.yml`) and CI |
@@ -195,7 +197,7 @@ read/write works too.
 | `FACTORY_MAX_SESSIONS_PER_DAY` | 20 | Cloud agent sessions (assignments, retries, fix rounds, any other) that may start in 24 hours; `0` = no cap |
 | `FACTORY_OWNERS` | the repository owner (personal repos) | Users or `@org/team` the alerts @-mention, comma-separated |
 | `FACTORY_MAX_FIX_ROUNDS` | 2 | Times the dispatcher asks `@copilot` to address a review before `needs-human` |
-| `FACTORY_REQUIRED_CHECKS` | `test,tests-bite` | Checks that must pass before an automatic merge |
+| `FACTORY_REQUIRED_CHECKS` | `test,tests-bite,analyze,dependency-review,CodeQL` | Checks that must pass before an automatic merge |
 | `FACTORY_START_CMD` | `npm start` | Command the Evidence workflow starts the app with (it sets `PORT`) |
 | `FACTORY_EVIDENCE_PATHS` | `/` | Comma-separated pages the Evidence workflow captures |
 | `FACTORY_TEST_CMD` | `node --test` | Command `tests-bite` runs with one test file appended (for example `npx jest` or `npx vitest run`) |
@@ -296,8 +298,10 @@ create duplicates; re-run the whole workflow instead.
 
 `docs/ruleset-main.json` (default branch) and `docs/ruleset-factory.json`
 (`factory/**`) require a pull request, resolved review threads, code owner
-review (CODEOWNERS covers only the factory's own files) and the `test`,
-`tests-bite` and `factory/risk-gate` checks, and enable automatic Copilot code review. On
+review (CODEOWNERS covers only the factory's own files), the `test`,
+`tests-bite`, `analyze`, `dependency-review` and `factory/risk-gate` checks and
+no new CodeQL alerts at or above high severity (`code_scanning` rule), and
+enable automatic Copilot code review. On
 `factory/**` the checks are not enforced on branch creation
 (`do_not_enforce_on_create`); otherwise the dispatcher cannot create
 `factory/spec-N` (422 "Reference update failed"). No
@@ -317,6 +321,12 @@ it for your own changes to the factory, after adding `human-approved`; leave it
 off for team repositories.
 
 ## Security
+
+- CodeQL scans the app and the workflows on every PR, dependency review
+  blocks known-vulnerable dependencies, and the setup script turns on secret
+  scanning with push protection (free on public repositories). The risk gate
+  waits for GitHub's `CodeQL` check, so a PR with a new alert is never merged
+  automatically.
 
 - The agent token lives in an environment restricted to the default branch;
   code on the agent's branches cannot read it.
@@ -378,6 +388,10 @@ off for team repositories.
   counts as biting when any of its tests fails on the base branch. A failing
   `test` or `tests-bite` check is not sent back to the agent; the PR waits
   for a human (the gate shows which check is missing).
+- CodeQL reports its `CodeQL` check a little after the `analyze` run ends,
+  so the gate may merge on its next sweep (every 15 minutes) instead of
+  right away. On plans without code scanning rulesets the setup script drops
+  the `code_scanning` rule; the gate still waits for the check.
 - The `factory-evidence` branch keeps every screenshot ever published; delete
   it now and then (`git push origin --delete factory-evidence`), older
   comments then show broken images. Screenshots use the app's synthetic

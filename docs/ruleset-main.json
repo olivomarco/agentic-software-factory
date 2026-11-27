@@ -23,7 +23,17 @@
         "required_status_checks": [
           { "context": "test", "integration_id": 15368 },
           { "context": "tests-bite", "integration_id": 15368 },
+          { "context": "analyze", "integration_id": 15368 },
+          { "context": "dependency-review", "integration_id": 15368 },
           { "context": "factory/risk-gate", "integration_id": 15368 }
+        ]
+      }
+    },
+    {
+      "type": "code_scanning",
+      "parameters": {
+        "code_scanning_tools": [
+          { "tool": "CodeQL", "security_alerts_threshold": "high_or_higher", "alerts_threshold": "errors" }
         ]
       }
     },
