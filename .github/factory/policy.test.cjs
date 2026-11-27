@@ -10,6 +10,8 @@ const {
   ticketGate,
   biteMode,
   biteVerdict,
+  isEvidenceShot,
+  evidenceComment,
   humanApprovals,
   isSpecBranch,
   mergeDangerDoor,
@@ -250,4 +252,20 @@ test("tests-bite asks for a test that fails on base and passes on head", () => {
   assert.strictEqual(biteVerdict([{ file: "a.test.js", base: 0, head: 0 }]).ok, false);
   assert.strictEqual(biteVerdict([{ file: "a.test.js", base: 1, head: 1 }]).ok, false);
   assert.strictEqual(biteVerdict([{ file: "a.test.js", base: 1, head: 0 }, { file: "b.test.js", base: 0, head: 0 }]).ok, true);
+});
+
+test("CI evidence accepts only plain screenshot names and pairs before with after", () => {
+  assert.ok(isEvidenceShot("after-mobile-dark-home.png"));
+  for (const bad of ["../x.png", "after-x.png.sh", "after-A.png", "evil-x.png", "after-x/y.png", `after-${"a".repeat(80)}.png`]) {
+    assert.ok(!isEvidenceShot(bad), bad);
+  }
+  const body = evidenceComment({
+    names: ["after-mobile-light-home.png", "before-mobile-light-home.png", "after-desktop-dark-home.png", "../x.png"],
+    url: (n) => `https://img/${n}`,
+    sha: "0123456789abcdef",
+  });
+  assert.match(body, /\| `mobile-light-home` \| <img src="https:\/\/img\/before-mobile-light-home.png" width="360"> \| <img src="https:\/\/img\/after-mobile-light-home.png"/);
+  // A page new in this pull request has no before.
+  assert.match(body, /\| `desktop-dark-home` \| _none_ \| <img/);
+  assert.ok(!body.includes("../x.png"));
 });

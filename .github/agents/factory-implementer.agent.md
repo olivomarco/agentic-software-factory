@@ -55,8 +55,9 @@ the page with snapshots and JavaScript measurements (viewport width,
 `scrollWidth`, element sizes, computed styles, contrast) and by using the
 controls. **Do not take screenshots** (`browser_take_screenshot`): the pull
 request cannot take image uploads from here, and sessions that captured
-screenshots stopped without finishing. Reviewers see the result in the
-review codespace.
+screenshots stopped without finishing. CI takes before and after
+screenshots of every pull request that touches `frontend/` or `backend/`
+and posts them on it, so reviewers see the result without your images.
 
 Title the pull request in Conventional Commits style, `type(scope): summary`
 with type `feat`, `fix`, `docs`, `refactor`, `test`, `ci` or `build`, and a
