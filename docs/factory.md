@@ -19,7 +19,7 @@ triage.md ........ category + state labels, agent brief or questions (triage ski
   |-- small and clear -> maintainer adds ready-for-agent ----------------------.
   |                                                                            |
   |-- big or vague:                                                            |
-  |   /grill ....... one interview round per comment (grill-with-docs skill)   |
+  |   grill ........ cockpit "Grill here": live interview (grill-with-docs)    |
   |   /spec ........ ## Spec appended to the issue, label spec (to-spec skill) |
   |   HUMAN GATE: maintainer adds spec:approved                                |
   |   plan.md ...... sub-issues with blocked-by edges, ready-for-agent         |
@@ -94,7 +94,6 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Piece | File | Role |
 |---|---|---|
 | Triage | `.github/workflows/triage.md` | New issue (or label `triage`): triage skill, never adds `ready-for-agent` |
-| Grill | `.github/workflows/grill.md` | `/grill` comment: one round of questions, with recommended answers |
 | Spec | `.github/workflows/spec.md` | `/spec` comment: appends `## Spec`, labels `spec`, optional draft docs PR (glossary, ADR) |
 | Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then runs dispatch |
 | Dispatch | `.github/workflows/dispatch.yml`, `.github/factory/dispatch.cjs` | Assigns the cloud agent, closes merged tickets, opens integration PRs |
@@ -165,8 +164,11 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
   `ready-for-agent`. Within a minute the issue gets 🚀 and `status:in-progress`;
   Copilot opens a draft PR. If the change is low risk it merges itself once CI
   and the Copilot review are green.
-- **Big or vague request:** comment `/grill`, answer the questions in a
-  comment, repeat until the grill says the frontier is empty. Comment `/spec`,
+- **Big or vague request:** in the cockpit, press **Grill here** and answer
+  the interview live; the session posts a `## Grilling summary` on the issue.
+  Grilling is canvas-only: it is a fast back-and-forth that needs the code and
+  docs at hand, which an issue thread cannot give. When only the reporter
+  knows the answers, triage asks them on the issue (`needs-info`). Comment `/spec`,
   read the `## Spec` section, edit it if needed, then add `spec:approved`.
   Watch the sub-issues appear and get worked in dependency order on
   `factory/spec-N`; review the integration PR at the end.

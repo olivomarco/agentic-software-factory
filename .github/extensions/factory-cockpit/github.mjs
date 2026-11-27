@@ -122,7 +122,6 @@ export const ACTIONS = {
   "approve-spec": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "spec:approved"]),
   "lane-local": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "lane:local"]),
   retriage: (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "triage"]),
-  grill: (repo, n) => gh(["issue", "comment", String(n), "--repo", repo, "--body", "/grill"]),
   spec: (repo, n) => gh(["issue", "comment", String(n), "--repo", repo, "--body", "/spec"]),
   wontfix: (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "wontfix"]),
   "human-approve": (repo, n) => gh(["pr", "edit", String(n), "--repo", repo, "--add-label", "human-approved"]),

@@ -19,7 +19,7 @@ another repository: "open the factory cockpit for OWNER/REPO".
 | Button | What happens |
 |---|---|
 | Grill here | Sends a prompt to this CLI session: the agent reads the issue, interviews you with the `grill-with-docs` skill (one question at a time) and posts a `## Grilling summary (local session)` comment on the issue |
-| /grill, /spec | Comments the slash command; the gh-aw workflow answers on the issue |
+| /spec | Comments the slash command; the gh-aw workflow writes the spec on the issue |
 | Build here | On an approved spec: adds `lane:local` (the dispatcher stops assigning its tickets) and sends a prompt that builds the whole spec in this session with the `implement-spec` skill on `local/spec-N`, then opens one pull request into the default branch (always high risk). Asks before every push |
 | Ready for agent | Adds `ready-for-agent` (gate) |
 | Approve spec | Adds `spec:approved` after a confirmation (gate) |
@@ -28,7 +28,7 @@ another repository: "open the factory cockpit for OWNER/REPO".
 | Re-run gate, Dispatch | Runs `risk-gate.yml` for the PR, or `dispatch.yml` |
 
 The agent can drive the canvas too (`get_state`, `show`, and `run` for
-`grill`, `spec`, `retriage`, `gate-pr`, `dispatch`), but the gate buttons are
+`spec`, `retriage`, `gate-pr`, `dispatch`), but the gate buttons are
 deliberately not exposed to it: approving a spec, starting the agent and
 approving a risky PR stay a human click.
 
