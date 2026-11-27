@@ -6,7 +6,7 @@
 # the agent token, CODEOWNERS owner and a Project board.
 # Safe to re-run (labels, rulesets and settings are updated in place).
 #
-# Usage: scripts/setup-repo.sh [--repo OWNER/REPO] [--owner @team] [--no-ruleset] [--admin-bypass] [--project TITLE]
+# Usage: scripts/setup-repo.sh [--repo OWNER/REPO] [--owner @team] [--no-ruleset] [--admin-bypass] [--auto-merge-integration on|off] [--project TITLE]
 #   --repo        target repository (default: the current directory's remote)
 #   --owner       replace the placeholder owner in .github/CODEOWNERS (local edit, commit it yourself)
 #   --no-ruleset  skip the rulesets
@@ -14,6 +14,11 @@
 #                 branch past its ruleset (pull requests only, never direct
 #                 pushes). For solo repositories, where the only code owner
 #                 cannot approve their own pull request. Re-run without it to remove.
+#   --auto-merge-integration on|off
+#                 set FACTORY_AUTO_MERGE_INTEGRATION: with on, a spec's integration pull
+#                 request is risk-rated like any other and can merge without a human
+#                 (default off: a human approves every integration PR). When omitted, the variable keeps
+#                 its value, or is created as false.
 #   --project     create (or reuse) a user/org Project with this title, link it, give
 #                 it the factory's Status stages, Kind and Risk fields and views, and
 #                 backfill it (needs the 'project' scope: gh auth refresh -s project)
@@ -30,14 +35,18 @@ owner=""
 ruleset=true
 admin_bypass=false
 project=""
+auto_merge_integration=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo="$2"; shift 2 ;;
     --owner) owner="$2"; shift 2 ;;
     --no-ruleset) ruleset=false; shift ;;
     --admin-bypass) admin_bypass=true; shift ;;
+    --auto-merge-integration)
+      case "${2:-}" in on|off) auto_merge_integration="$2" ;; *) echo "--auto-merge-integration takes on or off" >&2; exit 2 ;; esac
+      shift 2 ;;
     --project) project="$2"; shift 2 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -215,6 +224,32 @@ PY
   fi
 fi
 
+echo "== Variables"
+# Every tunable gets a visible value; one that already exists is never overwritten.
+existing="$(gh variable list --repo "$repo" --json name --jq '.[].name')"
+seed_var() {
+  if printf '%s\n' "$existing" | grep -qx "$1"; then echo "  $1 (kept)"; return; fi
+  gh variable set "$1" --repo "$repo" --body "$2" >/dev/null && echo "  $1=$2"
+}
+seed_var FACTORY_MAX_ACTIVE 3
+seed_var FACTORY_MAX_SESSIONS_PER_DAY 20
+seed_var FACTORY_MAX_FIX_ROUNDS 2
+seed_var FACTORY_REQUIRED_CHECKS "test,tests-bite,analyze,dependency-review,CodeQL"
+seed_var FACTORY_START_CMD "npm start"
+seed_var FACTORY_EVIDENCE_PATHS "/"
+seed_var FACTORY_TEST_CMD "node --test"
+seed_var FACTORY_REQUIRE_COPILOT_REVIEW true
+seed_var FACTORY_AUTO_MERGE_DEFAULT_BRANCH true
+seed_var FACTORY_AUTO_MERGE_INTEGRATION false
+seed_var FACTORY_MAX_AGENT_RETRIES 1
+seed_var FACTORY_AGENT_NO_PR_MINUTES 30
+seed_var FACTORY_AGENT_SESSION_MINUTES 90
+if [ -n "$auto_merge_integration" ]; then
+  [ "$auto_merge_integration" = on ] && value=true || value=false
+  gh variable set FACTORY_AUTO_MERGE_INTEGRATION --repo "$repo" --body "$value" >/dev/null
+  echo "  FACTORY_AUTO_MERGE_INTEGRATION=$value (set by --auto-merge-integration)"
+fi
+
 if [ -n "$project" ]; then
   echo "== Project board"
   powner="${repo%%/*}"
@@ -268,8 +303,7 @@ ${project_url:+  - Project default repository (no API for it): $project_url/sett
     configuration for $default_branch with .devcontainer/devcontainer.json, and
     set an idle timeout and a 2-core machine limit in your codespaces policies.
   - Replace the placeholder owner in .github/CODEOWNERS if you did not pass --owner.
-  - Optional repository variables (Settings > Secrets and variables > Actions > Variables):
-    FACTORY_MAX_ACTIVE (3), FACTORY_MAX_FIX_ROUNDS (2), FACTORY_REQUIRE_COPILOT_REVIEW (true),
-    FACTORY_AUTO_MERGE_DEFAULT_BRANCH (true), FACTORY_AUTO_MERGE_INTEGRATION (false),
-    FACTORY_MAX_AGENT_RETRIES (1), FACTORY_AGENT_NO_PR_MINUTES (30), FACTORY_AGENT_SESSION_MINUTES (90).
+  - Repository variables (Settings > Secrets and variables > Actions > Variables):
+    the tunables in docs/factory.md were created with their defaults (an existing value is
+    kept): edit them there. FACTORY_OWNERS and FACTORY_PAUSED stay unset on purpose.
 EOF
