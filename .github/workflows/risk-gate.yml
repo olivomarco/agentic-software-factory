@@ -17,7 +17,7 @@ on:
         description: Pull request number (empty = all open PRs)
         required: false
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "4,19,34,49 * * * *"
 
 permissions:
   contents: write

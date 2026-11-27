@@ -220,8 +220,12 @@ const ICON = {
   bot: '<svg width="14" height="14" viewBox="0 0 16 16" fill="var(--warn)"><path d="M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0v-1.5Z"/><path d="M6.25 0h2A.75.75 0 0 1 9 .75V3.5h3.25a2.25 2.25 0 0 1 2.25 2.25V7h.75a.75.75 0 0 1 0 1.5h-.75v2.75a2.25 2.25 0 0 1-2.25 2.25h-8.5a2.25 2.25 0 0 1-2.25-2.25V8.5H.75a.75.75 0 0 1 0-1.5H1.5V5.75A2.25 2.25 0 0 1 3.75 3.5H7.5V1.5H6.25a.75.75 0 0 1 0-1.5ZM3 5.75v5.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-5.5a.75.75 0 0 0-.75-.75h-8.5a.75.75 0 0 0-.75.75Z"/></svg>',
   check: '<svg width="12" height="12" viewBox="0 0 16 16" fill="var(--ok)"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>',
   x: '<svg width="12" height="12" viewBox="0 0 16 16" fill="var(--bad)"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>',
+  alert: '<svg width="14" height="14" viewBox="0 0 16 16" fill="var(--bad)"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
   pending: '<svg width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="var(--warn)"/></svg>',
 };
+
+// Failures the factory could not recover from on its own (docs/factory.md, "When things fail").
+const ATTENTION = { key: "attention", title: "Needs attention", hint: "Failed runs and work the factory handed back after a retry", c: "var(--bad)" };
 
 const STAGES = [
   { key: "triage", title: "Needs triage", hint: "Read triage's comment, then grill, spec or hand to the agent", c: "var(--purple)" },
@@ -241,7 +245,15 @@ const ISSUE_ACTIONS = {
   human: [["ready-for-agent", "Hand to agent"]],
 };
 
+// Actions for an issue in the attention list, by why it is there.
+function attentionActions(i) {
+  if (i.labels.includes("agent:failed")) return [["retry-agent", "Retry agent", "primary"], ["grill-local", "Grill here"], ["wontfix", "Won't fix", "danger"]];
+  if (/^\[aw\]/.test(i.title)) return [["close-report", "Close report"]];
+  return [["retriage-failed", "Re-triage", "primary"], ["grill-local", "Grill here"], ["wontfix", "Won't fix", "danger"]];
+}
+
 const LABEL_COLORS = {
+  "agent:failed": "#cf222e", "factory:failure": "#d93f0b",
   bug: "#d73a4a", enhancement: "#0ea5b7", documentation: "#0075ca", "possible-duplicate": "#d4a72c", refactor: "#8250df",
   tests: "#57606a", ci: "#57606a", dependencies: "#0366d6", factory: "#6e40c9", "door:one-way": "#cf222e", "lane:local": "#8250df", "needs-human": "#cf222e",
 };
@@ -251,6 +263,8 @@ const CONFIRM = {
   "approve-spec": (n) => ["Approve this spec?", `The factory splits #${n} into tickets and the cloud agent starts building them.`, "Approve spec"],
   "build-local": (n) => ["Build here?", `Spec #${n} leaves the cloud agent's queue and is built in this Copilot CLI session on local/spec-${n}.`, "Build here"],
   "human-approve": (n) => ["Approve this head?", `PR #${n} merges once its checks pass. A new push needs a new approval.`, "Approve"],
+  "retry-agent": (n) => ["Retry the cloud agent?", `#${n} goes back to the agent with a new session and a fresh retry budget. If its earlier pull request is still open, close it once the new one replaces it.`, "Retry agent"],
+  "close-report": (n) => ["Close this failure report?", `Close #${n} once its cause is fixed or the run was re-run.`, "Close report"],
   wontfix: (n) => ["Close as won't fix?", `#${n} gets the wontfix label.`, "Won't fix"],
 };
 
@@ -386,8 +400,42 @@ function section(key, titleText, hint, color, count, body) {
   return d;
 }
 
+function runCard(r) {
+  const what = { startup_failure: "did not start", timed_out: "timed out", failure: "failed" }[r.conclusion] || r.conclusion;
+  const bar = r.rerunnable ? actionBar(r.id, [["rerun-run", "Re-run failed jobs", "primary"]]) : null;
+  if (bar) bar.append(el("a", { class: "btn", href: r.url, target: "_blank", rel: "noopener", textContent: "Logs" }));
+  return el("article", { class: "card", style: "--c:var(--bad)" },
+    el("div", { class: "top" },
+      el("a", { class: "title", href: r.url, target: "_blank", rel: "noopener" }, el("span", { class: "num", textContent: r.workflow }), r.title === r.workflow ? "" : r.title),
+      badge(what, "bad", "x")),
+    el("div", { class: "meta" },
+      el("span", { class: "item", textContent: r.event === "dynamic" ? "agent session" : `on ${r.event.replace(/_/g, " ")}` }),
+      r.attempt > 1 ? el("span", { class: "item", textContent: `attempt ${r.attempt}` }) : null,
+      el("span", { class: "item", textContent: ago(r.at) }),
+      r.rerunnable ? null : el("span", { class: "item", textContent: "re-run it from the pull request" })),
+    bar);
+}
+
+const attentionCount = () => state.issues.filter((i) => i.stage === "attention").length + (state.failedRuns || []).length;
+
+function renderAttention(main) {
+  const issues = state.issues.filter((i) => i.stage === "attention" && matches(i));
+  const runs = (state.failedRuns || []).filter((r) => !query || `${r.workflow} ${r.title}`.toLowerCase().includes(query));
+  if (!issues.length && !runs.length) return;
+  const grid = el("div", { class: "grid" });
+  for (const r of runs) grid.append(runCard(r));
+  for (const i of issues) grid.append(card(i, { color: ATTENTION.c, meta: issueMeta(i), actions: attentionActions(i) }));
+  main.append(section(ATTENTION.key, ATTENTION.title, ATTENTION.hint, ATTENTION.c, issues.length + runs.length, grid));
+}
+
 function renderQueue(main) {
   const strip = el("div", { class: "pipeline" });
+  const needs = attentionCount();
+  if (needs) {
+    const chip = el("button", { class: "stage-chip", style: `--c:${ATTENTION.c}`, title: ATTENTION.hint }, el("span", { class: "dot" }), el("b", { textContent: needs }), ATTENTION.title);
+    chip.onclick = () => { const t = document.getElementById("s-attention"); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
+    strip.append(chip);
+  }
   for (const s of STAGES) {
     const n = state.issues.filter((i) => i.stage === s.key).length;
     const chip = el("button", { class: `stage-chip${n ? "" : " zero"}`, style: `--c:${s.c}`, title: s.hint },
@@ -396,6 +444,7 @@ function renderQueue(main) {
     strip.append(chip);
   }
   main.append(strip);
+  renderAttention(main);
   let shown = 0;
   for (const s of STAGES) {
     const items = state.issues.filter((i) => i.stage === s.key && matches(i));
@@ -411,6 +460,7 @@ function renderQueue(main) {
 
 function ticketIcon(t) {
   if (t.state === "closed") return "done";
+  if (t.labels.includes("agent:failed")) return "alert";
   if (t.labels.includes("status:in-progress")) return "bot";
   if (t.blockedBy) return "blocked";
   return "open";
@@ -442,7 +492,7 @@ function renderSpecs(main) {
         ul.append(el("li", { class: t.state === "closed" ? "closed" : "" },
           icon(ticketIcon(t)),
           el("a", { href: t.url, target: "_blank", rel: "noopener", title: t.title }, el("span", { class: "num", textContent: `#${t.number} ` }), t.title),
-          t.blockedBy && t.state !== "closed" ? badge("blocked", "bad") : null));
+          t.labels.includes("agent:failed") && t.state !== "closed" ? badge("agent failed", "bad") : t.blockedBy && t.state !== "closed" ? badge("blocked", "bad") : null));
       }
       extra.push(ul);
     }
@@ -510,7 +560,11 @@ function renderHeader() {
   $("#repo").textContent = state.repo || "…";
   if (state.repo) $("#repo").href = `https://github.com/${state.repo}`;
   if (state.projectUrl) { $("#project").href = state.projectUrl; $("#project").hidden = false; }
-  $("#c-queue").textContent = state.issues?.length ?? "·";
+  const cq = $("#c-queue");
+  const needs = state.issues ? attentionCount() : 0;
+  cq.textContent = state.issues?.length ?? "·";
+  cq.classList.toggle("alert", needs > 0);
+  cq.title = needs ? `${needs} need attention` : "";
   $("#c-specs").textContent = state.specs?.length ?? "·";
   const human = (state.pulls || []).filter((p) => p.gate === "pending" || p.gate === "failure").length;
   const cp = $("#c-pulls");

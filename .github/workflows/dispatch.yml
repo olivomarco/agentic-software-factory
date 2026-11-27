@@ -3,13 +3,18 @@ name: Dispatch
 # Hands unblocked ready-for-agent tickets to the Copilot cloud agent, opens
 # integration PRs for finished specs and runs the review fix loop on Copilot's
 # PRs. Deterministic: no model runs here.
-# Every trigger runs the same idempotent sweep (.github/factory/dispatch.cjs).
+# Every trigger runs the same idempotent sweep (.github/factory/dispatch.cjs),
+# which also recovers from failures: stuck or failed agent sessions are retried
+# once, then handed to a human; triage that never finished is re-run once.
+# Scheduled runs are best effort (GitHub delays or drops them under load), so
+# events and the cockpit's Dispatch button start the sweep too. Off-peak
+# minutes, since the top of the hour is when schedules are dropped most.
 on:
   issues:
     types: [labeled, closed]
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "7,37 * * * *"
 
 permissions:
   contents: read
@@ -32,6 +37,9 @@ jobs:
         env:
           MAX_ACTIVE: ${{ vars.FACTORY_MAX_ACTIVE || '3' }}
           MAX_FIX_ROUNDS: ${{ vars.FACTORY_MAX_FIX_ROUNDS || '2' }}
+          MAX_AGENT_RETRIES: ${{ vars.FACTORY_MAX_AGENT_RETRIES || '1' }}
+          AGENT_NO_PR_MINUTES: ${{ vars.FACTORY_AGENT_NO_PR_MINUTES || '30' }}
+          AGENT_SESSION_MINUTES: ${{ vars.FACTORY_AGENT_SESSION_MINUTES || '90' }}
         with:
           github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
           script: |

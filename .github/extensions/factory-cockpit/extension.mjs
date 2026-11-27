@@ -19,7 +19,7 @@ const instances = new Map();
 
 // Actions the agent may trigger. Gate actions (approving a spec, starting an
 // agent, approving a PR) stay with the human clicking in the canvas.
-const AGENT_ACTIONS = ["spec", "retriage", "gate-pr", "dispatch"];
+const AGENT_ACTIONS = ["spec", "retriage", "retriage-failed", "rerun-run", "gate-pr", "dispatch"];
 
 function grillPrompt(repo, number) {
   const skill = join(repoRoot, ".github/skills/grill-with-docs/SKILL.md");
@@ -85,7 +85,10 @@ async function perform(entry, action, number) {
   if (action !== "dispatch" && !(Number.isInteger(number) && number > 0)) throw new CanvasError("bad_input", "An issue or PR number is required");
   await fn(entry.repo, number);
   entry.cache = null;
-  return action === "dispatch" ? "Dispatcher started" : `${action} done on #${number}`;
+  if (action === "dispatch") return "Dispatcher started";
+  if (action === "rerun-run") return `Re-running workflow run ${number}`;
+  if (action === "retry-agent") return `#${number} is ready for the agent again; the dispatcher picks it up`;
+  return `${action} done on #${number}`;
 }
 
 function readBody(req) {
@@ -148,6 +151,7 @@ function summary(state) {
   return {
     repo: state.repo,
     issuesByStage: byStage,
+    failedRuns: (state.failedRuns || []).map((r) => ({ id: r.id, workflow: r.workflow, title: r.title, conclusion: r.conclusion, url: r.url })),
     specs: state.specs.map((s) => ({
       number: s.number,
       title: s.title,
@@ -175,7 +179,8 @@ const session = await joinSession({
         actions: [
           {
             name: "get_state",
-            description: "Return the factory state shown in the cockpit: open issues by stage, specs with ticket trees, PRs with risk and gate status.",
+            description:
+              "Return the factory state shown in the cockpit: open issues by stage (attention = agent:failed or factory:failure), failed workflow runs, specs with ticket trees, PRs with risk and gate status.",
             handler: async (ctx) => summary(await stateFor(instanceOf(ctx), true)),
           },
           {

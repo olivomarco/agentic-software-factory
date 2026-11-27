@@ -32,6 +32,7 @@ const names = (labels) => labels.map((l) => l.name);
 
 function stage(labels) {
   const has = (n) => labels.includes(n);
+  if (has("agent:failed") || has("factory:failure")) return "attention";
   if (has("status:in-progress")) return "in-progress";
   if (has("ready-for-agent")) return "ready";
   if (has("spec:approved")) return "approved";
@@ -56,14 +57,45 @@ function gateOf(rollup) {
   return out;
 }
 
+const FAILED = new Set(["failure", "timed_out", "startup_failure"]);
+
+// Failed workflow runs of the last day that nothing has fixed since: only the
+// latest run per workflow and title counts (a later success or a successful
+// re-run clears it). Dynamic runs (the cloud agent, Copilot code review)
+// cannot be re-run from here.
+async function failedRuns(repo) {
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 19);
+  const { workflow_runs: runs = [] } = await ghJson(["api", `repos/${repo}/actions/runs?per_page=100&created=>=${since}`]);
+  const latest = new Map();
+  for (const r of runs) {
+    if (r.status !== "completed") continue;
+    const key = `${r.workflow_id}:${r.display_title}`;
+    if (!latest.has(key)) latest.set(key, r);
+  }
+  return [...latest.values()]
+    .filter((r) => FAILED.has(r.conclusion))
+    .map((r) => ({
+      id: r.id,
+      workflow: r.name,
+      title: r.display_title,
+      event: r.event,
+      conclusion: r.conclusion,
+      attempt: r.run_attempt,
+      url: r.html_url,
+      at: r.updated_at,
+      rerunnable: !String(r.path || "").startsWith("dynamic/"),
+    }));
+}
+
 export async function loadState(repo) {
-  const [issues, prs, projectUrl] = await Promise.all([
+  const [issues, prs, projectUrl, runs] = await Promise.all([
     ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues?state=open&per_page=100`]),
     ghJson([
       "pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json",
       "number,title,url,labels,baseRefName,headRefName,isDraft,author,reviewDecision,statusCheckRollup,additions,deletions,changedFiles",
     ]),
     gh(["variable", "get", "FACTORY_PROJECT_URL", "--repo", repo]).then((s) => s.trim()).catch(() => ""),
+    failedRuns(repo).catch(() => []),
   ]);
 
   const openIssues = issues.flat().filter((i) => !i.pull_request).map((i) => ({
@@ -113,7 +145,7 @@ export async function loadState(repo) {
     ...gateOf(p.statusCheckRollup),
   }));
 
-  return { repo, projectUrl, fetchedAt: new Date().toISOString(), issues: openIssues, specs, pulls };
+  return { repo, projectUrl, fetchedAt: new Date().toISOString(), issues: openIssues, specs, pulls, failedRuns: runs };
 }
 
 // The only changes the cockpit makes: each one maps to a factory primitive.
@@ -127,6 +159,14 @@ export const ACTIONS = {
   "human-approve": (repo, n) => gh(["pr", "edit", String(n), "--repo", repo, "--add-label", "human-approved"]),
   hold: (repo, n) => gh(["pr", "edit", String(n), "--repo", repo, "--add-label", "hold"]),
   unhold: (repo, n) => gh(["pr", "edit", String(n), "--repo", repo, "--remove-label", "hold"]),
+  // Failure recovery. retry-agent restarts the agent with a fresh retry budget.
+  "retry-agent": (repo, n) =>
+    gh(["issue", "edit", String(n), "--repo", repo, "--remove-label", "agent:failed,ready-for-human", "--add-label", "ready-for-agent"]),
+  "retriage-failed": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--remove-label", "factory:failure", "--add-label", "triage"]),
+  "close-report": (repo, n) => gh(["issue", "close", String(n), "--repo", repo, "--comment", "Handled from the factory cockpit."]),
+  // A run that never started has no failed jobs to re-run: re-run all of it.
+  "rerun-run": (repo, id) =>
+    gh(["run", "rerun", String(id), "--failed", "--repo", repo]).catch(() => gh(["run", "rerun", String(id), "--repo", repo])),
   "gate-pr": (repo, n) => gh(["workflow", "run", "risk-gate.yml", "--repo", repo, "-f", `pr=${n}`]),
   dispatch: (repo) => gh(["workflow", "run", "dispatch.yml", "--repo", repo]),
 };

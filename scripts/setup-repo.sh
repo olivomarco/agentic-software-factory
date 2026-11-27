@@ -59,6 +59,9 @@ create_label "triage"             5319e7 "Re-run triage on this issue"
 create_label "spec"               c5def5 "The issue carries a spec (## Spec) waiting for approval"
 create_label "spec:approved"      0e8a16 "Human gate: break the spec into tickets"
 create_label "status:in-progress" fbca04 "The cloud agent is working on this"
+# Failure recovery
+create_label "agent:failed"       b60205 "The cloud agent failed or stalled, even after a retry: a human decides"
+create_label "factory:failure"    d93f0b "A factory workflow failed on this (gh-aw failure report, triage that never finished)"
 create_label "documentation"      0075ca "Docs, glossary or ADR"
 # Risk gate
 # Describe pull requests (risk gate + actions/labeler, grouped by .github/release.yml)
@@ -209,5 +212,6 @@ Still manual:
   - Replace the placeholder owner in .github/CODEOWNERS if you did not pass --owner.
   - Optional repository variables (Settings > Secrets and variables > Actions > Variables):
     FACTORY_MAX_ACTIVE (3), FACTORY_MAX_FIX_ROUNDS (2), FACTORY_REQUIRE_COPILOT_REVIEW (true),
-    FACTORY_AUTO_MERGE_DEFAULT_BRANCH (true), FACTORY_AUTO_MERGE_INTEGRATION (false).
+    FACTORY_AUTO_MERGE_DEFAULT_BRANCH (true), FACTORY_AUTO_MERGE_INTEGRATION (false),
+    FACTORY_MAX_AGENT_RETRIES (1), FACTORY_AGENT_NO_PR_MINUTES (30), FACTORY_AGENT_SESSION_MINUTES (90).
 EOF

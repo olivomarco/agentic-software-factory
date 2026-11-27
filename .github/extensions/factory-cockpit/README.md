@@ -26,9 +26,16 @@ another repository: "open the factory cockpit for OWNER/REPO".
 | Approve head | Adds `human-approved` to a high-risk PR (gate, cleared on the next push) |
 | Hold / Release hold | Adds or removes `hold` |
 | Re-run gate, Dispatch | Runs `risk-gate.yml` for the PR, or `dispatch.yml` |
+| Retry agent | On an `agent:failed` ticket: re-adds `ready-for-agent` for a new session and a fresh retry budget (gate) |
+| Re-triage, Close report | On `factory:failure` issues: re-run triage, or close a gh-aw `[aw]` failure report |
+| Re-run failed jobs | Re-runs a workflow whose latest run in the last 24 hours failed |
+
+**Needs attention** opens the Queue tab, and its count turns the tab badge red:
+tickets the agent gave up on, failed triage, gh-aw failure reports and failed
+runs. See "When things fail" in `docs/factory.md`.
 
 The agent can drive the canvas too (`get_state`, `show`, and `run` for
-`spec`, `retriage`, `gate-pr`, `dispatch`), but the gate buttons are
+`spec`, `retriage`, `retriage-failed`, `gate-pr`, `dispatch`, `rerun-run`), but the gate buttons are
 deliberately not exposed to it: approving a spec, starting the agent and
 approving a risky PR stay a human click.
 

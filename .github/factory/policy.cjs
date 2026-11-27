@@ -123,19 +123,105 @@ function humanApprovals(reviews, { headSha, author }) {
   return { approvers, blockers };
 }
 
-// Is the cloud agent working on the PR? The last copilot_work_started /
-// copilot_work_finished timeline event decides. A fix request posted after the
-// last finish counts as work about to start, until it is staleMs old.
-function copilotBusy(timeline, { requestedAt = [], now = Date.now(), staleMs = 30 * 60 * 1000 } = {}) {
+const MINUTE = 60 * 1000;
+// When the cloud agent counts as stuck. Sessions normally last minutes; the
+// agent's own session limit is about an hour.
+const AGENT_LIMITS = { noPrMs: 30 * MINUTE, sessionMs: 90 * MINUTE, wipMs: 15 * MINUTE };
+
+// The agent's sessions on a PR, from its timeline: the last start, the last
+// finish (any copilot_work_finished* event) and whether that finish failed.
+function agentSession(timeline) {
   let started = 0;
   let finished = 0;
+  let failed = false;
   for (const e of timeline) {
     const t = Date.parse(e.created_at);
     if (e.event === "copilot_work_started") started = Math.max(started, t);
-    if (e.event === "copilot_work_finished") finished = Math.max(finished, t);
+    if (/^copilot_work_finished/.test(e.event || "") && t >= finished) {
+      finished = t;
+      failed = /fail|error/i.test(e.event);
+    }
   }
-  if (started > finished) return true;
+  return { started, finished, failed, running: started > finished };
+}
+
+// Is the cloud agent working on the PR? The last copilot_work_started /
+// copilot_work_finished timeline event decides, but a session that never
+// finished stops counting after maxSessionMs (the agent died). A fix request
+// posted after the last finish counts as work about to start, until it is
+// staleMs old.
+function copilotBusy(
+  timeline,
+  { requestedAt = [], now = Date.now(), staleMs = 30 * MINUTE, maxSessionMs = 2 * AGENT_LIMITS.sessionMs } = {},
+) {
+  const { started, finished, running } = agentSession(timeline);
+  if (running) return now - started < maxSessionMs;
   return requestedAt.map(Date.parse).some((t) => t > finished && now - t < staleMs);
+}
+
+// Health of a ticket the cloud agent was given. `since` is the later of the
+// assignment and the last automatic retry; pr is the agent's open PR
+// ({ title, draft, timeline }) and closedPr its last unmerged, closed one.
+// Returns { status: ok | stalled | failed | closed | unassigned, reason }.
+function agentHealth({ assigned = true, since = 0, pr = null, closedPr = null, now = Date.now(), limits = AGENT_LIMITS }) {
+  const mins = (ms) => Math.round(ms / MINUTE);
+  const ok = { status: "ok", reason: "" };
+  if (!pr) {
+    if (closedPr) return { status: "closed", reason: `its pull request #${closedPr.number} was closed without merging` };
+    if (!assigned) return { status: "unassigned", reason: "the Copilot cloud agent is no longer assigned" };
+    if (now - since > limits.noPrMs) return { status: "stalled", reason: `the agent opened no pull request within ${mins(limits.noPrMs)} minutes` };
+    return ok;
+  }
+  const s = agentSession(pr.timeline || []);
+  if (s.running) {
+    return now - s.started > limits.sessionMs
+      ? { status: "stalled", reason: `the agent's session has run for over ${mins(limits.sessionMs)} minutes without finishing` }
+      : ok;
+  }
+  // A retry was asked for after the last session: give the agent time to start.
+  if (since > s.finished) {
+    return now - since > limits.noPrMs
+      ? { status: "stalled", reason: `the agent did not pick the work up again within ${mins(limits.noPrMs)} minutes` }
+      : ok;
+  }
+  if (s.failed) return { status: "failed", reason: "the agent's session ended with an error" };
+  if (pr.draft && /^\s*\[WIP\]/i.test(pr.title || "") && s.finished && now - s.finished > limits.wipMs) {
+    return { status: "stalled", reason: "the agent's session ended but the pull request is still a [WIP] draft" };
+  }
+  return ok;
+}
+
+// What the dispatcher does about an unhealthy ticket: retry up to maxRetries
+// times, except when a human closed the PR or unassigned the agent.
+function recoveryAction({ status }, { retries, maxRetries = 1 }) {
+  if (status === "ok") return "none";
+  if (status === "closed" || status === "unassigned") return "handoff";
+  return retries < maxRetries ? "retry" : "handoff";
+}
+
+const AGENT_RETRY_MARKER = "<!-- factory:agent-retry -->";
+
+// A failed CI run looks like infrastructure, not code, when the run never
+// started properly or timed out, or when a job failed without any failed step
+// (a lost runner, a cancelled job).
+function isInfraFailure(run, jobs = []) {
+  if (["startup_failure", "timed_out"].includes(run.conclusion)) return true;
+  if (run.conclusion !== "failure") return false;
+  const bad = jobs.filter((j) => ["failure", "timed_out", "cancelled"].includes(j.conclusion));
+  return bad.length > 0 && bad.every((j) => j.conclusion !== "failure" || !(j.steps || []).some((s) => s.conclusion === "failure"));
+}
+
+// Labels any of which mean triage ran (or a human already decided).
+const TRIAGED_LABELS = ["bug", "enhancement", "documentation", "needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix", "spec", "spec:approved", "factory:failure"];
+
+// Should the sweep re-run triage on this issue? labels: names; createdAt and
+// triageLabelledAt: ISO strings (the latter when `triage` is on the issue).
+// Returns "none" | "retry" | "giveup".
+function triageRetry({ labels, createdAt, triageLabelledAt = null, retries, now = Date.now(), graceMs = 60 * MINUTE, maxRetries = 1 }) {
+  if (labels.some((l) => TRIAGED_LABELS.includes(l))) return "none";
+  const since = Date.parse(triageLabelledAt || createdAt);
+  if (now - since < graceMs) return "none";
+  return retries < maxRetries ? "retry" : "giveup";
 }
 
 const isCopilotReviewerLogin = (login) => /^copilot-pull-request-reviewer(\[bot\])?$/.test(login || "");
@@ -175,6 +261,14 @@ module.exports = {
   titleType,
   describeLabels,
   copilotBusy,
+  AGENT_LIMITS,
+  AGENT_RETRY_MARKER,
+  agentSession,
+  agentHealth,
+  recoveryAction,
+  isInfraFailure,
+  TRIAGED_LABELS,
+  triageRetry,
   isCopilotReviewerLogin,
   blockingThreads,
   parseFixRequest,
