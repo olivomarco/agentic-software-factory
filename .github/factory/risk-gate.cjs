@@ -271,7 +271,8 @@ module.exports = async ({ github, context, core }) => {
       description = `High risk, approved by ${writers.join(", ")}`;
     } else {
       state = "pending";
-      description = `High risk: needs human approval. ${reasons.join("; ")}`;
+      // Lead with the action: the checks box shows only the first ~140 characters.
+      description = `Needs a human: approve in a review or add human-approved. High risk: ${reasons.join("; ")}`;
     }
     await github.rest.repos.createCommitStatus({
       owner,
@@ -288,7 +289,10 @@ module.exports = async ({ github, context, core }) => {
     const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
     if (state === "pending" && !pr.draft) await upsertSticky(number, comments, humanNeededComment(pr, reasons));
     else if (state === "success") {
-      const done = risk === "high" ? `### ✅ Approved by ${writers.join(", ")}` : "### ✅ Now low risk: no human needed";
+      // Keep why it was high risk, so the edited comment still explains the hold.
+      const done = risk === "high"
+        ? [`### ✅ Approved by ${writers.join(", ")}`, "", "It needed a human because:", "", ...reasons.map((r) => `- ${r}`)].join("\n")
+        : "### ✅ Now low risk: no human needed";
       await upsertSticky(number, comments, `${done}\n\n[Gate run](${runUrl})`, { create: false });
     }
 
