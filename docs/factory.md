@@ -116,6 +116,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Dependency review | `.github/workflows/dependency-review.yml` | `dependency-review` check: fails a PR that adds a dependency with a known high or critical vulnerability |
 | Evidence | `.github/workflows/evidence.yml` + `evidence-publish.yml`, `.github/factory/evidence*.cjs` | For PRs touching `frontend/` or `backend/`: Playwright screenshots of the base branch and the PR (phone and desktop, light and dark), stored on the `factory-evidence` branch and posted as one Before/After comment. Taken by CI, not by the agent |
 | Implementer | `.github/agents/factory-implementer.agent.md` | Cloud agent: implement, tdd, code-review and pr skills, `Fixes #n` |
+| Models | `.github/factory/models.json`, `engine.model` in each gh-aw workflow | `implement` is the model the cloud agent is assigned with (`agent_assignment.model`); fix rounds are `@copilot` comments and keep it. Triage runs on Haiku, spec, plan and the architecture scout on Opus (pinned in their frontmatter; recompile with `gh aw compile`). Copilot code review has no model setting, only its effort level in the repository settings |
 | Environment | `scripts/bootstrap.sh`, `.devcontainer/devcontainer.json` | One setup for Codespaces, the cloud agent (`copilot-setup-steps.yml`) and CI |
 | Skills | `.github/skills/` | Matt Pocock's skills (MIT), see `.github/skills/README.md` |
 | Skill config | `docs/agents/*.md` | Issue tracker, label vocabulary, domain docs |
