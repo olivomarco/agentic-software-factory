@@ -26,6 +26,7 @@ Factory labels (set by workflows or maintainers, never by the triage skill):
 | `hold` | a maintainer | Force human review on a PR, whatever its risk |
 | `human-approved` | a maintainer | Human sign-off on a high-risk PR (counts as approval) |
 | `needs-human` | dispatch | The review fix loop gave up on a PR; a human resolves and approves |
+| `architecture` | architecture scout | Weekly report of deepening candidates; pick one in the cockpit, triage skips it |
 | `lane:local` | the cockpit's Build here | The spec is built locally with `implement-spec`; dispatch skips its tickets |
 
 Only a maintainer adds `ready-for-agent` to a standalone issue; the plan

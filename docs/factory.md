@@ -98,6 +98,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Triage | `.github/workflows/triage.md` | New issue (or label `triage`): triage skill, never adds `ready-for-agent` |
 | Spec | `.github/workflows/spec.md` | `/spec` comment: appends `## Spec`, labels `spec`, optional draft docs PR (glossary, ADR) |
 | Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then labels the spec `tickets:ready`; dispatch runs when plan completes |
+| Architecture scout | `.github/workflows/architecture-scout.md` | Weekly (or on demand): improve-codebase-architecture steps 1-2 on recent hot spots, posts up to 4 deepening candidates as one `[architecture]` issue (older ones closed). Proposes only; a human picks one with **Review here** in the cockpit |
 | Dispatch | `.github/workflows/dispatch.yml`, `.github/factory/dispatch.cjs` | Assigns the cloud agent, closes merged tickets, opens integration PRs |
 | Risk gate | `.github/workflows/risk-gate.yml`, `.github/factory/risk-gate.cjs` | Risk labels, `factory/risk-gate` status, automatic merge |
 | PR labels | risk gate, `.github/labeler.yml` + `.github/workflows/labeler.yml`, `.github/release.yml` | Type labels from the linked ticket (or its spec) and the Conventional Commits title (`bug`, `enhancement`, `documentation`, `refactor`, `tests`, `ci`, `dependencies`), `door:one-way` from Merge Danger or a `!` title, path labels (`documentation`, `tests`, `ci`, `dependencies`, `factory`); release notes are grouped by them |
@@ -207,6 +208,12 @@ read/write works too.
   Watch the sub-issues appear; once all are published the spec gets
   `tickets:ready` and they are worked in dependency order on
   `factory/spec-N`; review the integration PR at the end.
+- **Keeping the code easy to change:** each week the architecture scout posts
+  an `[architecture]` issue with deepening candidates (shallow modules found
+  in recent hot spots). In the cockpit press **Review here** on it, or the
+  toolbar's **Architecture review** for a fresh scan: Copilot CLI writes the
+  HTML report, grills you through the candidate you pick and files the agreed
+  refactor as an issue; comment `/spec` on it and it follows the normal path.
 - **Reviewing a risky PR:** the gate's comment has an **Open in Codespace**
   badge. The codespace checks out the PR branch, starts the app on port 3000
   and opens the preview, with the GitHub Pull Requests extension showing the

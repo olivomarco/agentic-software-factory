@@ -14,11 +14,13 @@ requests (see the note at the top of its `SKILL.md`).
 | `triage` | the cockpit canvas session and the `triage` workflow |
 | `implement`, `tdd`, `pr` | the `factory-implementer` custom agent, one ticket per cloud agent session |
 | `code-review` | Copilot code review on every pull request; `implement` for its self-review |
+| `improve-codebase-architecture` | the weekly `architecture-scout` workflow (report only) and the cockpit's Architecture review (report and grilling) |
+| `codebase-design` | `tdd` and `improve-codebase-architecture`: deep modules, seams, the deletion test |
 | `implement-spec` | the local fast lane: one Copilot CLI session (Codespace or laptop) builds a whole approved spec |
 
-`implement`, `implement-spec` and `pr` only run when named explicitly; the
-custom agent and `docs/factory.md` name them. `tdd` mentions a
-`codebase-design` skill that is not vendored; it is optional reference reading.
+`implement`, `implement-spec`, `pr` and `improve-codebase-architecture` only
+run when named explicitly; the custom agent, the workflows and the cockpit
+name them.
 
 The repo-specific configuration these skills read lives in `docs/agents/`.
 To update, re-copy from upstream and keep the commit hash above current.
