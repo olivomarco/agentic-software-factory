@@ -1,0 +1,13 @@
+{
+  "name": "sdlc-factory-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dummy todo app used to exercise the SDLC factory workflow",
+  "scripts": {
+    "start": "node backend/server.js",
+    "test": "node --test \"backend/*.test.js\" \"frontend/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

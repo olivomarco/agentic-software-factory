@@ -1,0 +1,90 @@
+body {
+  font-family: system-ui, sans-serif;
+  color: #291d40;
+  background: linear-gradient(135deg, #eee5ff, #ddf8f3) fixed;
+}
+
+main {
+  max-width: 480px;
+  margin: 3rem auto;
+  padding: 1.5rem;
+  background: #fff;
+  border-top: 4px solid #6540d6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px #4424771a;
+}
+
+h1 {
+  color: #4d2bb6;
+}
+
+#add-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#new-title {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid #8170a6;
+  border-radius: 6px;
+}
+
+button {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#add-form button {
+  background: #6540d6;
+}
+
+#add-form button:hover {
+  background: #4d2bb6;
+}
+
+#todo-list button {
+  background: #bb245e;
+}
+
+#todo-list button:hover {
+  background: #9b184a;
+}
+
+#todo-list input[type="checkbox"] {
+  accent-color: #6540d6;
+}
+
+button:focus-visible,
+#new-title:focus-visible,
+#todo-list input[type="checkbox"]:focus-visible {
+  outline: 2px solid #4d2bb6;
+  outline-offset: 2px;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+}
+
+li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+}
+
+li span {
+  flex: 1;
+}
+
+.done {
+  text-decoration: line-through;
+  color: #6b627a;
+}

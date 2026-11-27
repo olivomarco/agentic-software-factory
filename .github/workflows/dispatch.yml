@@ -1,0 +1,37 @@
+name: Dispatch
+
+# Hands unblocked ready-for-agent tickets to the Copilot cloud agent and opens
+# integration PRs for finished specs. Deterministic: no model runs here.
+# Every trigger runs the same idempotent sweep (.github/factory/dispatch.cjs).
+on:
+  issues:
+    types: [labeled, closed]
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: factory-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: github.event_name != 'issues' || github.event.action == 'closed' || github.event.label.name == 'ready-for-agent'
+    runs-on: ubuntu-latest
+    # Holds GH_AW_AGENT_TOKEN; usable from the default branch only.
+    environment: copilot-agent
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/factory
+      - uses: actions/github-script@v7
+        env:
+          MAX_ACTIVE: ${{ vars.FACTORY_MAX_ACTIVE || '3' }}
+        with:
+          github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
+          script: |
+            const dispatch = require(`${process.env.GITHUB_WORKSPACE}/.github/factory/dispatch.cjs`);
+            await dispatch({ github, context, core });

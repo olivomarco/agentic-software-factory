@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Factory cockpit</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1f2328; --muted: #656d76; --bg: #fff; --card: #f6f8fa; --line: #d0d7de; --accent: #0969da;
+          --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6edf3; --muted: #8d96a0; --bg: #0d1117; --card: #161b22; --line: #30363d; --accent: #4493f8;
+          --ok: #3fb950; --warn: #d29922; --bad: #f85149; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  header { position: sticky; top: 0; z-index: 1; display: flex; gap: .75rem; align-items: center; padding: .6rem 1rem; border-bottom: 1px solid var(--line); background: var(--bg); }
+  header h1 { font-size: 15px; margin: 0; }
+  header .grow { flex: 1; }
+  nav button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  main { padding: .75rem 1rem 2rem; }
+  .muted { color: var(--muted); }
+  .cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .75rem; }
+  .col h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: .25rem 0 .5rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; margin-bottom: .5rem; }
+  .card a { color: var(--fg); text-decoration: none; font-weight: 600; }
+  .card a:hover { text-decoration: underline; }
+  .meta { margin: .25rem 0; display: flex; flex-wrap: wrap; gap: .25rem; }
+  .pill { border: 1px solid var(--line); border-radius: 999px; padding: 0 .45rem; font-size: 11px; color: var(--muted); }
+  .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); } .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .actions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .35rem; }
+  button { font: inherit; font-size: 12px; padding: .15rem .55rem; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .tree { margin: .35rem 0 0; padding-left: 1rem; }
+  .tree li { margin: .15rem 0; }
+  .closed { text-decoration: line-through; color: var(--muted); }
+  #toast { position: fixed; bottom: 1rem; right: 1rem; max-width: 50ch; padding: .5rem .75rem; border-radius: 6px; background: var(--fg); color: var(--bg); display: none; }
+  .empty { color: var(--muted); font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏭 Factory cockpit</h1>
+  <span id="repo" class="muted"></span>
+  <nav>
+    <button data-tab="queue" class="active">Queue</button>
+    <button data-tab="specs">Specs</button>
+    <button data-tab="pulls">Pull requests</button>
+  </nav>
+  <span class="grow"></span>
+  <span id="fetched" class="muted"></span>
+  <a id="project" target="_blank" rel="noopener" hidden>Project board</a>
+  <button data-act="dispatch" title="Run the dispatcher now">Dispatch</button>
+  <button id="refresh">Refresh</button>
+</header>
+<main id="main"><p class="muted">Loading…</p></main>
+<div id="toast"></div>
+<template id="t-card"><div class="card"><a target="_blank" rel="noopener"></a><div class="meta"></div><div class="actions"></div></div></template>
+<script>
+const base = location.pathname.replace(/\/$/, "");
+let state = null;
+let tab = "queue";
+
+const QUEUE = [
+  ["triage", "Needs triage", "Triage commented. Decide: small and clear, or grill it."],
+  ["needs-info", "Waiting for info", "The reporter has questions to answer."],
+  ["spec", "Spec to approve", "Read ## Spec on the issue, then approve."],
+  ["approved", "Approved specs", "Being split and built."],
+  ["ready", "Ready for agent", "Waiting for a dispatch slot or a blocker."],
+  ["in-progress", "In progress", "The cloud agent is working."],
+  ["human", "Ready for human", "Needs a person to implement."],
+];
+
+const ISSUE_ACTIONS = {
+  triage: [["grill-local", "Grill here", true], ["grill", "/grill"], ["spec", "/spec"], ["ready-for-agent", "Ready for agent"], ["retriage", "Re-triage"], ["wontfix", "Won't fix"]],
+  "needs-info": [["grill-local", "Grill here", true], ["grill", "/grill"], ["retriage", "Re-triage"]],
+  spec: [["approve-spec", "Approve spec", true], ["grill-local", "Grill here"], ["spec", "Re-spec"]],
+  human: [["ready-for-agent", "Ready for agent"]],
+};
+
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) if (k === "class") e.className = v; else if (k.startsWith("data-")) e.setAttribute(k, v); else e[k] = v;
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+const pill = (text, cls = "") => el("span", { class: `pill ${cls}`, textContent: text });
+
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.display = "none"), 5000);
+}
+
+async function act(action, number, button) {
+  if (action === "approve-spec" && !confirm(`Approve the spec on #${number}? The factory will split it into tickets and start building.`)) return;
+  if (action === "human-approve" && !confirm(`Approve the current head of PR #${number}? It will merge once checks pass.`)) return;
+  if (button) button.disabled = true;
+  try {
+    const r = await fetch(`${base}/api/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, number }) });
+    const body = await r.json();
+    toast(body.message || (r.ok ? "Done" : "Failed"));
+    if (r.ok) setTimeout(load, 1500);
+  } catch (e) { toast(String(e)); }
+  finally { if (button) button.disabled = false; }
+}
+
+function card(item, pills, actions) {
+  const c = document.getElementById("t-card").content.firstElementChild.cloneNode(true);
+  const a = c.querySelector("a"); a.href = item.url; a.textContent = `#${item.number} ${item.title}`;
+  c.querySelector(".meta").append(...pills);
+  const box = c.querySelector(".actions");
+  for (const [action, label, primary] of actions) {
+    const b = el("button", { textContent: label, class: primary ? "primary" : "" });
+    b.onclick = () => act(action, item.number, b);
+    box.append(b);
+  }
+  return c;
+}
+
+function issuePills(i) {
+  const p = i.labels.filter((l) => ["bug", "enhancement", "possible-duplicate", "documentation"].includes(l)).map((l) => pill(l, l === "possible-duplicate" ? "warn" : ""));
+  if (i.blockedBy) p.push(pill(`blocked by ${i.blockedBy}`, "warn"));
+  if (i.subIssues) p.push(pill(`${i.subIssues} tickets`));
+  if (i.assignees.length) p.push(pill(i.assignees.join(", ")));
+  p.push(pill(`${i.comments} comments`));
+  return p;
+}
+
+function renderQueue(main) {
+  const cols = el("div", { class: "cols" });
+  for (const [key, title, hint] of QUEUE) {
+    const items = state.issues.filter((i) => i.stage === key);
+    if (!items.length && ["human", "approved"].includes(key)) continue;
+    const col = el("section", { class: "col" }, el("h2", { textContent: `${title} (${items.length})`, title: hint }));
+    if (!items.length) col.append(el("p", { class: "empty", textContent: "Nothing here" }));
+    for (const i of items) col.append(card(i, issuePills(i), ISSUE_ACTIONS[key] || []));
+    cols.append(col);
+  }
+  main.append(cols);
+}
+
+function renderSpecs(main) {
+  if (!state.specs.length) return main.append(el("p", { class: "empty", textContent: "No specs yet. Use /spec on a grilled issue." }));
+  const cols = el("div", { class: "cols" });
+  for (const s of state.specs) {
+    const done = s.tickets.filter((t) => t.state === "closed").length;
+    const pills = [pill(s.stage === "approved" ? "approved" : "awaiting approval", s.stage === "approved" ? "ok" : "warn"), pill(`${done}/${s.tickets.length} done`), pill(s.branch)];
+    const c = card(s, pills, s.stage === "spec" ? ISSUE_ACTIONS.spec : []);
+    const ul = el("ul", { class: "tree" });
+    for (const t of s.tickets) {
+      const icon = t.state === "closed" ? "✅" : t.labels.includes("status:in-progress") ? "🤖" : t.blockedBy ? "⛔" : "⏳";
+      ul.append(el("li", {}, `${icon} `, el("a", { href: t.url, target: "_blank", rel: "noopener", class: t.state === "closed" ? "closed" : "", textContent: `#${t.number} ${t.title}` }),
+        t.blockedBy && t.state !== "closed" ? el("span", { class: "muted", textContent: ` (blocked by ${t.blockedBy})` }) : null));
+    }
+    if (s.tickets.length) c.append(ul);
+    const pr = state.pulls.find((p) => p.head === s.branch);
+    if (pr) c.append(el("p", {}, "Integration PR: ", el("a", { href: pr.url, target: "_blank", rel: "noopener", textContent: `#${pr.number}` })));
+    cols.append(c);
+  }
+  main.append(cols);
+}
+
+function renderPulls(main) {
+  if (!state.pulls.length) return main.append(el("p", { class: "empty", textContent: "No open pull requests." }));
+  const groups = [["Needs a human", (p) => p.gate === "pending" || p.gate === "failure"], ["Merging on its own", (p) => p.gate === "success"], ["Agent still working", (p) => !p.gate]];
+  const cols = el("div", { class: "cols" });
+  for (const [title, test] of groups) {
+    const items = state.pulls.filter(test);
+    const col = el("section", { class: "col" }, el("h2", { textContent: `${title} (${items.length})` }));
+    for (const p of items) {
+      const pills = [
+        pill(p.risk ? `risk:${p.risk}` : "unclassified", p.risk === "low" ? "ok" : p.risk === "high" ? "bad" : ""),
+        pill(`→ ${p.base}`),
+        pill(`+${p.size.additions} −${p.size.deletions}, ${p.size.files} files`),
+      ];
+      if (p.draft) pills.push(pill("draft"));
+      if (p.labels.includes("hold")) pills.push(pill("hold", "bad"));
+      for (const c of p.checks.filter((c) => ["test", "factory"].includes(c.name) || c.state === "failure")) pills.push(pill(`${c.name}: ${c.state || "…"}`, c.state === "success" ? "ok" : c.state === "failure" ? "bad" : "warn"));
+      const c = card(p, pills, [
+        ...(p.gate === "pending" ? [["human-approve", "Approve head", true]] : []),
+        p.labels.includes("hold") ? ["unhold", "Release hold"] : ["hold", "Hold"],
+        ["gate-pr", "Re-run gate"],
+      ]);
+      if (p.gateText) c.append(el("p", { class: "muted", textContent: p.gateText }));
+      col.append(c);
+    }
+    cols.append(col);
+  }
+  main.append(cols);
+}
+
+function render() {
+  const main = document.getElementById("main");
+  main.replaceChildren();
+  if (state.error) return main.append(el("p", { class: "pill bad", textContent: state.error }));
+  document.getElementById("repo").textContent = state.repo;
+  document.getElementById("fetched").textContent = `updated ${new Date(state.fetchedAt).toLocaleTimeString()}`;
+  const proj = document.getElementById("project");
+  if (state.projectUrl) { proj.href = state.projectUrl; proj.hidden = false; }
+  ({ queue: renderQueue, specs: renderSpecs, pulls: renderPulls })[tab](main);
+}
+
+async function load() {
+  try { state = await (await fetch(`${base}/api/state`)).json(); } catch (e) { state = { error: String(e) }; }
+  render();
+}
+
+document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => {
+  tab = b.dataset.tab;
+  document.querySelectorAll("nav button").forEach((x) => x.classList.toggle("active", x === b));
+  render();
+}));
+document.getElementById("refresh").onclick = load;
+document.querySelector('[data-act="dispatch"]').onclick = (e) => act("dispatch", 0, e.target);
+const events = new EventSource(`${base}/api/events`);
+events.onmessage = (e) => { const m = JSON.parse(e.data); if (m.tab) { tab = m.tab; document.querySelector(`nav [data-tab="${tab}"]`)?.click(); } if (m.refresh) load(); };
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+name: Risk gate
+
+# Classifies every PR, publishes the factory/risk-gate status and merges what
+# the policy allows (.github/factory/risk-gate.cjs). Deterministic: no model.
+# The script always comes from the default branch, never from the PR.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number (empty = all open PRs)
+        required: false
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  statuses: write
+  checks: read
+  actions: write
+
+concurrency:
+  group: risk-gate-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || inputs.pr || 'sweep' }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/factory
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr }}
+          REQUIRED_CHECKS: ${{ vars.FACTORY_REQUIRED_CHECKS || 'test' }}
+          REQUIRE_COPILOT_REVIEW: ${{ vars.FACTORY_REQUIRE_COPILOT_REVIEW || 'true' }}
+          AUTO_MERGE_DEFAULT_BRANCH: ${{ vars.FACTORY_AUTO_MERGE_DEFAULT_BRANCH || 'true' }}
+          AUTO_MERGE_INTEGRATION: ${{ vars.FACTORY_AUTO_MERGE_INTEGRATION || 'false' }}
+        with:
+          script: |
+            const gate = require(`${process.env.GITHUB_WORKSPACE}/.github/factory/risk-gate.cjs`);
+            await gate({ github, context, core });
