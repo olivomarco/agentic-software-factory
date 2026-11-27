@@ -298,6 +298,7 @@ module.exports = async ({ github, context, core }) => {
     }
 
     if (state !== "success" || pr.draft) return;
+    if (process.env.PAUSED === "true") return log("factory paused (FACTORY_PAUSED): not merging");
     if (pr.base.ref === repoInfo.default_branch && !autoMergeDefault) return log("auto-merge into the default branch is off");
     if (!isSpecBranch(pr.base.ref) && pr.base.ref !== repoInfo.default_branch) return log(`base ${pr.base.ref} is not managed by the factory`);
 

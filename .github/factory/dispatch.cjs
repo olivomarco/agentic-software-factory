@@ -20,6 +20,10 @@
 //     `factory:failure`; gh-aw's own "[aw] ... failed" issues get it too;
 //   - one failing item never stops the sweep: errors are collected and the run
 //     fails at the end, listing them.
+// Spending limits: nothing that starts a cloud agent session (assignment,
+// retry, fix round) or a triage re-run happens while FACTORY_PAUSED is true,
+// and at most MAX_SESSIONS_PER_DAY agent sessions start in any 24 hours
+// (alerts.yml tells the owners when the cap holds work back).
 const {
   specBranch,
   closingRefs,
@@ -37,10 +41,11 @@ const {
   triageRetry,
 } = require("./policy.cjs");
 
+const { AGENT_RUN_PATH, agentSessionsLastDay } = require("./sessions.cjs");
+
 const COPILOT_LOGINS = ["copilot-swe-agent[bot]", "copilot-swe-agent"];
-// Cloud agent sessions run as "dynamic" workflow runs under this path; Copilot
-// code review uses dynamic/agents/copilot-pull-request-reviewer.
-const AGENT_RUN_PATH = "dynamic/copilot-swe-agent/";
+// Cloud agent sessions run as "dynamic" workflow runs under AGENT_RUN_PATH;
+// Copilot code review uses dynamic/agents/copilot-pull-request-reviewer.
 const WRITE_ROLES = new Set(["admin", "maintain", "write"]);
 
 module.exports = async ({ github, context, core }) => {
@@ -56,6 +61,8 @@ module.exports = async ({ github, context, core }) => {
     noPrMs: minutes("AGENT_NO_PR_MINUTES", AGENT_LIMITS.noPrMs),
     sessionMs: minutes("AGENT_SESSION_MINUTES", AGENT_LIMITS.sessionMs),
   };
+  const paused = process.env.PAUSED === "true";
+  const maxSessionsPerDay = Number(process.env.MAX_SESSIONS_PER_DAY || 0);
   const runUrl = `${context.serverUrl}/${fullName}/actions/runs/${context.runId}`;
   const { data: repoInfo } = await github.rest.repos.get({ owner, repo });
   const defaultBranch = repoInfo.default_branch;
@@ -181,6 +188,25 @@ module.exports = async ({ github, context, core }) => {
     }
   }
 
+  // Agent sessions this sweep may still start (pause and the daily cap).
+  let budget = Infinity;
+  if (paused) {
+    budget = 0;
+    core.notice("FACTORY_PAUSED is true: no agent sessions, fix rounds or triage re-runs start");
+  } else if (maxSessionsPerDay > 0) {
+    const used = await agentSessionsLastDay({ github, owner, repo, now });
+    budget = Math.max(0, maxSessionsPerDay - used);
+    core.info(`${used} agent session(s) in the last 24 h (cap ${maxSessionsPerDay})`);
+  }
+  function mayStart(what) {
+    if (budget > 0) {
+      budget -= 1;
+      return true;
+    }
+    core.info(`${what}: held (${paused ? "factory paused" : `daily cap of ${maxSessionsPerDay} agent sessions reached`})`);
+    return false;
+  }
+
   // A ticket in progress whose agent failed, stalled, or lost its PR: retry
   // (a new session on its PR, or a fresh assignment), then hand to a human.
   // Retries count from the last time a maintainer made it ready-for-agent.
@@ -200,6 +226,7 @@ module.exports = async ({ github, context, core }) => {
     const health = agentHealth({ assigned: issue.assignees.some(isCopilot), since, pr, closedPr, now, limits });
     const action = recoveryAction(health, { retries: markers.length, maxRetries: maxAgentRetries });
     if (action === "none") return;
+    if (action === "retry" && !mayStart(`#${n} retry`)) return;
     // A stuck session holds the PR: GitHub queues new @copilot requests behind
     // it. Cancelling it also records the session as finished.
     if (open) await cancelAgentRuns(open.head.ref);
@@ -287,6 +314,10 @@ module.exports = async ({ github, context, core }) => {
       core.info(`${active} tickets in progress (MAX_ACTIVE=${maxActive}); the rest wait for the next run`);
       break;
     }
+    if (budget <= 0) {
+      mayStart(`#${n}`);
+      break;
+    }
     const outcome = await attempt(`#${n}`, async () => {
       const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: n });
       if ((issue.issue_dependencies_summary?.blocked_by ?? 0) > 0) {
@@ -324,6 +355,7 @@ module.exports = async ({ github, context, core }) => {
       }
       const base = baseFor(parent);
       if (base !== defaultBranch) await ensureBranch(base);
+      if (!mayStart(`#${n}`)) return "skipped";
       if (!(await assignAgent(n, base))) {
         throw new Error(
           `could not assign the Copilot cloud agent. Check that the cloud agent is enabled and that GH_AW_AGENT_TOKEN in the copilot-agent environment is a user token (see docs/factory.md).`,
@@ -351,7 +383,7 @@ module.exports = async ({ github, context, core }) => {
       }
       continue;
     }
-    if (labels.includes("status:in-progress") || triageRetry({ labels, createdAt: issue.created_at, retries: 0, now }) === "none") continue;
+    if (paused || labels.includes("status:in-progress") || triageRetry({ labels, createdAt: issue.created_at, retries: 0, now }) === "none") continue;
     await attempt(`#${issue.number}`, async () => {
       const events = await github.paginate(github.rest.issues.listEvents, { owner, repo, issue_number: issue.number, per_page: 100 });
       const triageLabels = events.filter((e) => e.event === "labeled" && e.label?.name === "triage");
@@ -440,6 +472,7 @@ module.exports = async ({ github, context, core }) => {
 
     const action = fixLoopAction({ reviewedHead, copilotThreads, busy, requestedForHead, rounds: requests.length, maxRounds: maxFixRounds });
     if (action === "request") {
+      if (!mayStart(`PR #${pr.number} fix round`)) return;
       const round = requests.length + 1;
       await comment(
         pr.number,

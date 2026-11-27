@@ -45,6 +45,8 @@ jobs:
           MAX_AGENT_RETRIES: ${{ vars.FACTORY_MAX_AGENT_RETRIES || '1' }}
           AGENT_NO_PR_MINUTES: ${{ vars.FACTORY_AGENT_NO_PR_MINUTES || '30' }}
           AGENT_SESSION_MINUTES: ${{ vars.FACTORY_AGENT_SESSION_MINUTES || '90' }}
+          PAUSED: ${{ vars.FACTORY_PAUSED || 'false' }}
+          MAX_SESSIONS_PER_DAY: ${{ vars.FACTORY_MAX_SESSIONS_PER_DAY || '20' }}
         with:
           github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
           script: |
