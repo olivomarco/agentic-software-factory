@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Prepares a GitHub repository for the factory: labels, the copilot-agent
 # environment (holds the agent token, usable from the default branch only),
-# the branch rulesets for the default branch and factory/** and, optionally,
+# the branch rulesets for the default branch and factory/**, a push ruleset
+# keeping workflow files admin-only (organization repositories) and, optionally,
 # the agent token, CODEOWNERS owner and a Project board.
 # Safe to re-run (labels, rulesets and settings are updated in place).
 #
 # Usage: scripts/setup-repo.sh [--repo OWNER/REPO] [--owner @team] [--no-ruleset] [--admin-bypass] [--project TITLE]
 #   --repo        target repository (default: the current directory's remote)
 #   --owner       replace the placeholder owner in .github/CODEOWNERS (local edit, commit it yourself)
-#   --no-ruleset  skip the branch rulesets
+#   --no-ruleset  skip the rulesets
 #   --admin-bypass let repository admins merge a pull request into the default
 #                 branch past its ruleset (pull requests only, never direct
 #                 pushes). For solo repositories, where the only code owner
@@ -180,6 +181,25 @@ PY
       exit 1
     fi
   done
+
+  # Only admins may push changes to workflow files, so a workflow run on the
+  # agent's branch is always the default branch's definition. GitHub accepts
+  # push rulesets on organization-owned repositories only.
+  file="$root/docs/ruleset-workflows.json"
+  name="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["name"])' "$file")"
+  existing="$(printf '%s\n' "$all" | while read -r id n; do [ "$n" = "$name" ] && echo "$id"; done || true)"
+  if [ -n "$existing" ]; then
+    gh api -X PUT "repos/$repo/rulesets/$existing" --input "$file" >/dev/null 2>"$err" && ok=true || ok=false
+  else
+    gh api -X POST "repos/$repo/rulesets" --input "$file" >/dev/null 2>"$err" && ok=true || ok=false
+  fi
+  if $ok; then
+    echo "  '$name' applied: you can turn off Copilot's 'Require approval for workflow runs'"
+  else
+    echo "  '$name' not applied (push rulesets need an organization-owned repository):"
+    sed 's/^/    /' "$err"
+    echo "  Keep Copilot's 'Require approval for workflow runs' ON (see docs/factory.md, Security)."
+  fi
 fi
 
 if [ -n "$project" ]; then
@@ -215,8 +235,10 @@ cat <<EOF
 Still manual:
   - Enable the Copilot cloud agent and decide on "Require approval for workflow runs":
     https://github.com/$repo/settings/copilot
-    Turning it off lets Copilot's PR checks start automatically; the agent token stays
-    out of reach because only $default_branch can use the $env_name environment.
+    Turn it off only where the 'workflows: admins only' push ruleset applied above
+    (organization repositories): otherwise an agent branch could edit a workflow and
+    run it with write access. The agent token is out of reach either way: only
+    $default_branch can use the $env_name environment.
   - Push the compiled workflows (.github/workflows/*.lock.yml) to the default branch.
   - Copilot code review (https://github.com/$repo/settings/copilot): review effort
     "Adaptive". It reads .github/skills/code-review; open a test PR and check its

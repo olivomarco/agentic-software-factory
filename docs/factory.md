@@ -126,11 +126,13 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 
    It creates the labels, enables squash merge and branch deletion, creates the
    `copilot-agent` environment (default branch only) with both tokens, applies
-   both rulesets and creates, links and shapes the Project board (see "The
+   the rulesets and creates, links and shapes the Project board (see "The
    Project board" below).
-4. Settings > Copilot: enable the cloud agent and turn off **Require approval
-   for workflow runs** (otherwise CI never runs on the agent's PRs and nothing
-   merges). See "Security" below for why this is acceptable.
+4. Settings > Copilot: enable the cloud agent. Turn off **Require approval for
+   workflow runs** only if the script applied the `workflows: admins only` push
+   ruleset (organization repositories). Otherwise leave it on and click
+   **Approve and run workflows** on each agent push, after a look at the diff;
+   until you do, CI does not run and nothing merges. See "Security" below.
 5. Settings > Copilot > Code review: set the review effort to **Adaptive**.
    Open a test PR and check that the `[Spec]` comments quote the ticket; if
    they do not, add the GitHub MCP server under Copilot > MCP servers so the
@@ -266,6 +268,11 @@ review (CODEOWNERS covers only the factory's own files) and the `test` and
 approval count is required: the risk gate's status carries that decision, so
 low-risk changes can merge without a human and high-risk ones cannot.
 
+`docs/ruleset-workflows.json` is a **push** ruleset: only repository admins
+may push a change under `.github/workflows/`, on any branch. GitHub accepts push
+rulesets on organization-owned repositories only; on a personal repository the
+script says so and skips it. Change a workflow yourself, on your own branch.
+
 In a solo repository the only code owner cannot approve their own pull
 request. `scripts/setup-repo.sh --admin-bypass` lets repository admins merge a
 default-branch pull request past the ruleset (the "bypass rules" checkbox):
@@ -286,10 +293,24 @@ off for team repositories.
   that edits a workflow and asks for `statuses: write` could fake `test` or
   `factory/risk-gate` while it runs. Such a change touches `.github/`, so it is
   high risk and needs code owner review to merge, but the run itself happens
-  first. The setup script makes read-only the default token permission, which
-  does not stop a workflow from asking for more. To close this fully, publish
-  the gate from a dedicated GitHub App and pin the check to it, or keep
-  **Require approval for workflow runs** on and approve the agent's runs by hand.
+  first, with a token that can write to the repository and post the statuses
+  of *other* pull requests. The setup script makes read-only the default token
+  permission, which does not stop a workflow from asking for more. Two ways to
+  close this:
+  - organization repository: the `workflows: admins only` push ruleset stops
+    the agent from pushing workflow changes at all, so its runs only ever use
+    the default branch's definitions (CI: read-only token, no secrets). Then
+    turning off **Require approval for workflow runs** is safe;
+  - personal repository (no push rulesets): keep **Require approval for
+    workflow runs** on and approve the agent's runs by hand, after checking the
+    diff touches nothing under `.github/workflows/`.
+  Runs triggered by Copilot code review's comments (`pull_request_review`,
+  actor `Copilot`) also wait for approval; ignore them: the gate's status
+  comes from its other runs.
+- There are no repository-level secrets. The gh-aw workflows authenticate with
+  the run's own token (`copilot-requests: write`), and both tokens live in the
+  `copilot-agent` environment. A `COPILOT_GITHUB_TOKEN` repository secret left
+  from older gh-aw versions is unused: delete it.
 - Copilot's PRs show the token owner as author. GitHub does not let authors
   approve their own PRs, which is why `human-approved` exists. When a writer
   adds it, the gate records a `factory/human-approval` status on that exact
