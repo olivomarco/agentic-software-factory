@@ -12,6 +12,7 @@ const {
   mergeDangerDoor,
   describeLabels,
   copilotBusy,
+  agentSession,
   agentHealth,
   recoveryAction,
   isInfraFailure,
@@ -199,4 +200,18 @@ test("project values follow the factory's stages", () => {
     assert.ok(options("Status").includes(issue(labels).Status), labels.join());
   }
   assert.strictEqual(issueStage(["ready-for-agent", "status:in-progress"]), "in-progress");
+});
+
+test("a Copilot code review does not look like the agent working", () => {
+  const ev = (event, created_at, slug) => ({ event, created_at, performed_via_github_app: { slug } });
+  const timeline = [
+    ev("copilot_work_started", "2026-01-01T10:00:00Z", "copilot-swe-agent"),
+    ev("copilot_work_finished", "2026-01-01T10:30:00Z", "copilot-swe-agent"),
+    ev("copilot_work_started", "2026-01-01T10:31:00Z", "copilot-pull-request-reviewer"),
+  ];
+  assert.strictEqual(agentSession(timeline).running, false);
+  assert.strictEqual(copilotBusy(timeline, { now: Date.parse("2026-01-01T10:35:00Z") }), false);
+  // A hung session still counts from the agent's own start, not the review's.
+  const hung = [timeline[0], timeline[2]];
+  assert.strictEqual(agentSession(hung).started, Date.parse("2026-01-01T10:00:00Z"));
 });
