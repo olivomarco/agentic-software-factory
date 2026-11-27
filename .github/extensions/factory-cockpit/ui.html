@@ -97,7 +97,8 @@
   main { padding: 12px 14px 40px; max-width: 1100px; margin: 0 auto; }
 
   /* Pipeline */
-  .pipeline { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .pipeline { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 10px; }
+  .pipeline:empty { display: none; }
   .stage-chip { flex: none; display: flex; align-items: center; gap: 7px; padding: 4px 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: var(--card); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; box-shadow: var(--shadow); }
   .stage-chip b { color: var(--fg); font-size: 13px; font-variant-numeric: tabular-nums; }
   .stage-chip:hover { border-color: var(--c); }
@@ -228,6 +229,7 @@
     </div>
   </div>
   <div class="facets" id="facets"></div>
+  <div class="pipeline" id="stages"></div>
 </header>
 <main id="main"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></main>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -685,26 +687,33 @@ function renderClosed(main, items, cardOf, [doneTitle, doneHint], [dropTitle, dr
   return shown;
 }
 
+// The stage jumps live in the header, on the line under the quick filters.
+function renderStages() {
+  const box = $("#stages");
+  box.replaceChildren();
+  if (!state || state.error || tab !== "queue" || view === "closed") return;
+  const { open } = scope("issues");
+  const needs = open.filter((i) => i.stage === "attention" && matches(i)).length + visibleRuns().length;
+  if (filtering() && !needs && !open.some((i) => matches(i))) return;
+  if (needs) {
+    const chip = el("button", { class: "stage-chip", style: `--c:${ATTENTION.c}`, title: ATTENTION.hint }, el("span", { class: "dot" }), el("b", { textContent: needs }), ATTENTION.title);
+    chip.onclick = () => { const t = document.getElementById("s-attention"); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
+    box.append(chip);
+  }
+  for (const s of STAGES) {
+    const n = open.filter((i) => i.stage === s.key && matches(i)).length;
+    const chip = el("button", { class: `stage-chip${n ? "" : " zero"}`, style: `--c:${s.c}`, title: s.hint },
+      el("span", { class: "dot" }), el("b", { textContent: n }), s.title);
+    chip.onclick = () => { collapsed.delete(s.key); const t = document.getElementById(`s-${s.key}`); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
+    box.append(chip);
+  }
+}
+
 function renderQueue(main) {
   const { open, closed, all } = scope("issues");
   if (!all.length && !(view !== "closed" && visibleRuns().length)) return main.append(hero("🌱", view === "closed" ? "Nothing closed yet" : "The queue is empty", view === "closed" ? "Closed issues show up here." : "New issues are triaged and land here."));
   let shown = 0;
   if (view !== "closed") {
-    const strip = el("div", { class: "pipeline" });
-    const needs = open.filter((i) => i.stage === "attention" && matches(i)).length + visibleRuns().length;
-    if (needs) {
-      const chip = el("button", { class: "stage-chip", style: `--c:${ATTENTION.c}`, title: ATTENTION.hint }, el("span", { class: "dot" }), el("b", { textContent: needs }), ATTENTION.title);
-      chip.onclick = () => { const t = document.getElementById("s-attention"); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
-      strip.append(chip);
-    }
-    for (const s of STAGES) {
-      const n = open.filter((i) => i.stage === s.key && matches(i)).length;
-      const chip = el("button", { class: `stage-chip${n ? "" : " zero"}`, style: `--c:${s.c}`, title: s.hint },
-        el("span", { class: "dot" }), el("b", { textContent: n }), s.title);
-      chip.onclick = () => { collapsed.delete(s.key); const t = document.getElementById(`s-${s.key}`); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
-      strip.append(chip);
-    }
-    if (!filtering() || open.some((i) => matches(i)) || needs) main.append(strip);
     shown += renderAttention(main, open);
     for (const s of STAGES) {
       const items = open.filter((i) => i.stage === s.key && matches(i));
@@ -873,6 +882,8 @@ function render() {
   }
   renderHeader();
   renderFacets();
+  renderStages();
+  document.documentElement.style.setProperty("--hdr", `${document.querySelector("header").offsetHeight}px`);
   ({ queue: renderQueue, specs: renderSpecs, pulls: renderPulls })[tab](main);
 }
 
