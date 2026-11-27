@@ -12,7 +12,9 @@ permissions:
   contents: read
   issues: read
   copilot-requests: write
-engine: copilot
+engine:
+  id: copilot
+  model: claude-opus-5.5
 tools:
   github:
     toolsets: [issues]

@@ -42,6 +42,7 @@ const {
 } = require("./policy.cjs");
 
 const { AGENT_RUN_PATH, agentSessionsLastDay } = require("./sessions.cjs");
+const models = require("./models.json");
 
 const COPILOT_LOGINS = ["copilot-swe-agent[bot]", "copilot-swe-agent"];
 // Cloud agent sessions run as "dynamic" workflow runs under AGENT_RUN_PATH;
@@ -161,7 +162,7 @@ module.exports = async ({ github, context, core }) => {
           repo,
           issue_number: n,
           assignees: [login],
-          agent_assignment: { base_branch: base, custom_agent: customAgent },
+          agent_assignment: { base_branch: base, custom_agent: customAgent, ...(models.implement && { model: models.implement }) },
         });
       } catch (e) {
         core.info(`Assigning ${login} failed: ${e.message}`);
