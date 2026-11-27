@@ -82,6 +82,8 @@ li {
 
 li span {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .done {
