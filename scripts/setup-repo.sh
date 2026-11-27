@@ -62,6 +62,7 @@ create_label "triage"             5319e7 "Re-run triage on this issue"
 # Spec and delivery
 create_label "spec"               c5def5 "The issue carries a spec (## Spec) waiting for approval"
 create_label "spec:approved"      0e8a16 "Human gate: break the spec into tickets"
+create_label "tickets:ready"      0e8a16 "plan published every ticket of this spec: the dispatcher may start them"
 create_label "status:in-progress" fbca04 "The cloud agent is working on this"
 # Failure recovery
 create_label "agent:failed"       b60205 "The cloud agent failed or stalled, even after a retry: a human decides"

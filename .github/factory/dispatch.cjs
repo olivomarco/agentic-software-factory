@@ -4,7 +4,10 @@
 //      only fire on the default branch);
 //   2. assign the Copilot cloud agent to unblocked `ready-for-agent` issues,
 //      targeting factory/spec-<parent> when the parent is an approved spec,
-//      except tickets of a `lane:local` spec (built by implement-spec locally);
+//      except tickets of a `lane:local` spec (built by implement-spec locally).
+//      A spec's tickets start only once plan has published all of them (the
+//      spec carries `tickets:ready` and no plan run is active); a spec itself
+//      is never built;
 //   3. open the integration PR for every approved spec whose tickets are done;
 //   4. review fix loop: ask @copilot to address Copilot code review comments on
 //      its PRs, at most MAX_FIX_ROUNDS times, then label the PR `needs-human`.
@@ -27,6 +30,8 @@ const {
   parseFixRequest,
   AGENT_LIMITS,
   AGENT_RETRY_MARKER,
+  TICKETS_READY,
+  ticketGate,
   agentHealth,
   recoveryAction,
   triageRetry,
@@ -267,6 +272,14 @@ module.exports = async ({ github, context, core }) => {
 
   // 2. Assign unblocked tickets, oldest first, up to MAX_ACTIVE at a time.
   let active = open.filter((i) => has(i, "status:in-progress")).length;
+  // While plan runs, the breakdown may be half-published: hold every spec ticket.
+  const planning = await attempt("plan runs", async () => {
+    for (const status of ["in_progress", "queued"]) {
+      const { data } = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: "plan.lock.yml", status, per_page: 1 });
+      if (data.total_count > 0) return true;
+    }
+    return false;
+  });
   const ready = open.filter((i) => has(i, "ready-for-agent") && !has(i, "status:in-progress")).sort((a, b) => a.number - b.number);
   for (const listed of ready) {
     const n = listed.number;
@@ -283,6 +296,24 @@ module.exports = async ({ github, context, core }) => {
       const parent = await parentOf(n);
       if (parent?.labels.some((l) => l.name === "lane:local")) {
         core.info(`#${n} belongs to spec #${parent.number}, which is being built locally (lane:local)`);
+        return "skipped";
+      }
+      const parentLabels = parent ? parent.labels.map((l) => l.name || l) : [];
+      if (parentLabels.includes(TICKETS_READY) && !(await labelledByTrustedActor(parent.number, TICKETS_READY)).ok) {
+        await removeLabel(parent.number, TICKETS_READY);
+        parentLabels.splice(parentLabels.indexOf(TICKETS_READY), 1);
+      }
+      const gate = ticketGate(
+        issue.labels.map((l) => l.name || l),
+        parent && { labels: parentLabels, planning: planning !== false },
+      );
+      if (gate === "spec") {
+        await comment(n, "This is a spec, so the factory does not build it directly: add `spec:approved` and the factory splits it into tickets first.");
+        await removeLabel(n, "ready-for-agent");
+        return "skipped";
+      }
+      if (gate) {
+        core.info(`#${n} waits: spec #${parent.number} ${gate === "spec-not-approved" ? "is not approved" : "is still being split into tickets"}`);
         return "skipped";
       }
       const approval = await labelledByTrustedActor(n, "ready-for-agent");
