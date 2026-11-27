@@ -4,14 +4,48 @@
 //      only fire on the default branch);
 //   2. assign the Copilot cloud agent to unblocked `ready-for-agent` issues,
 //      targeting factory/spec-<parent> when the parent is an approved spec,
-//      except tickets of a `lane:local` spec (built by implement-spec locally);
+//      except tickets of a `lane:local` spec (built by implement-spec locally).
+//      A spec's tickets start only once plan has published all of them (the
+//      spec carries `tickets:ready` and no plan run is active); a spec itself
+//      is never built;
 //   3. open the integration PR for every approved spec whose tickets are done;
 //   4. review fix loop: ask @copilot to address Copilot code review comments on
 //      its PRs, at most MAX_FIX_ROUNDS times, then label the PR `needs-human`.
 //      @copilot only answers users with write access, hence the agent token.
-const { specBranch, closingRefs, isSpecBranch, copilotBusy, isCopilotReviewerLogin, fixLoopAction, parseFixRequest } = require("./policy.cjs");
+// Recovery from failures (infrastructure included):
+//   - watchdog (in 1.): a ticket whose agent session failed, stalled or never
+//     opened a PR is retried MAX_AGENT_RETRIES times, then handed to a human
+//     (`agent:failed` + `ready-for-human`), which frees its slot;
+//   - triage that never labelled an issue is re-run once, then the issue gets
+//     `factory:failure`; gh-aw's own "[aw] ... failed" issues get it too;
+//   - one failing item never stops the sweep: errors are collected and the run
+//     fails at the end, listing them.
+// Spending limits: nothing that starts a cloud agent session (assignment,
+// retry, fix round) or a triage re-run happens while FACTORY_PAUSED is true,
+// and at most MAX_SESSIONS_PER_DAY agent sessions start in any 24 hours
+// (alerts.yml tells the owners when the cap holds work back).
+const {
+  specBranch,
+  closingRefs,
+  isSpecBranch,
+  copilotBusy,
+  isCopilotReviewerLogin,
+  fixLoopAction,
+  parseFixRequest,
+  AGENT_LIMITS,
+  AGENT_RETRY_MARKER,
+  TICKETS_READY,
+  ticketGate,
+  agentHealth,
+  recoveryAction,
+  triageRetry,
+} = require("./policy.cjs");
+
+const { AGENT_RUN_PATH, agentSessionsLastDay } = require("./sessions.cjs");
 
 const COPILOT_LOGINS = ["copilot-swe-agent[bot]", "copilot-swe-agent"];
+// Cloud agent sessions run as "dynamic" workflow runs under AGENT_RUN_PATH;
+// Copilot code review uses dynamic/agents/copilot-pull-request-reviewer.
 const WRITE_ROLES = new Set(["admin", "maintain", "write"]);
 
 module.exports = async ({ github, context, core }) => {
@@ -20,9 +54,32 @@ module.exports = async ({ github, context, core }) => {
   const maxActive = Number(process.env.MAX_ACTIVE || 3);
   const maxFixRounds = Number(process.env.MAX_FIX_ROUNDS || 2);
   const customAgent = process.env.CUSTOM_AGENT || "factory-implementer";
+  const maxAgentRetries = Number(process.env.MAX_AGENT_RETRIES ?? 1);
+  const minutes = (name, fallback) => (process.env[name] ? Number(process.env[name]) * 60 * 1000 : fallback);
+  const limits = {
+    ...AGENT_LIMITS,
+    noPrMs: minutes("AGENT_NO_PR_MINUTES", AGENT_LIMITS.noPrMs),
+    sessionMs: minutes("AGENT_SESSION_MINUTES", AGENT_LIMITS.sessionMs),
+  };
+  const paused = process.env.PAUSED === "true";
+  const maxSessionsPerDay = Number(process.env.MAX_SESSIONS_PER_DAY || 0);
   const runUrl = `${context.serverUrl}/${fullName}/actions/runs/${context.runId}`;
   const { data: repoInfo } = await github.rest.repos.get({ owner, repo });
   const defaultBranch = repoInfo.default_branch;
+  const { data: me } = await github.rest.users.getAuthenticated();
+  const now = Date.now();
+
+  // One failing item never stops the sweep; the run fails at the end instead.
+  const errors = [];
+  async function attempt(what, fn) {
+    try {
+      return await fn();
+    } catch (e) {
+      errors.push(`${what}: ${e.message}`);
+      core.warning(`${what}: ${e.message}`);
+      return undefined;
+    }
+  }
 
   const has = (issue, name) => issue.labels.some((l) => (l.name || l) === name);
   const comment = (issue_number, body) => github.rest.issues.createComment({ owner, repo, issue_number, body });
@@ -53,7 +110,12 @@ module.exports = async ({ github, context, core }) => {
     const existing = await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch(notFound);
     if (existing) return;
     const { data: base } = await github.rest.git.getRef({ owner, repo, ref: `heads/${defaultBranch}` });
-    await github.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: base.object.sha });
+    await github.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: base.object.sha }).catch((e) => {
+      if (e.status !== 422) throw e;
+      throw new Error(
+        `could not create ${branch} (${e.message}). A ruleset on factory/** probably blocks branch creation: set do_not_enforce_on_create on its required status checks (docs/ruleset-factory.json) and run scripts/setup-repo.sh again.`,
+      );
+    });
     core.info(`Created ${branch} from ${defaultBranch}`);
   }
 
@@ -69,69 +131,29 @@ module.exports = async ({ github, context, core }) => {
   const subIssues = (issue_number) =>
     github.paginate("GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues", { owner, repo, issue_number, per_page: 100 });
 
-  // 1. Tickets merged into a spec branch. Start from the agent's own open
-  // tickets (no time window to fall out of) and accept only a merged PR from a
-  // copilot/* branch of this repository into the ticket's own spec branch.
-  // Only writers can assign, so a Copilot-named assignee is the cloud agent.
   const isCopilot = (u) => /copilot/i.test(u?.login || "");
-  let open = await openIssues();
-  for (const issue of open.filter((i) => has(i, "status:in-progress") && i.assignees.some(isCopilot))) {
-    const parent = await parentOf(issue.number);
-    if (!parent) continue;
-    const branch = specBranch(parent.number);
-    const timeline = await github.paginate(github.rest.issues.listEventsForTimeline, { owner, repo, issue_number: issue.number, per_page: 100 });
-    const prNumbers = new Set(
+  const timelineOf = (issue_number) =>
+    github.paginate(github.rest.issues.listEventsForTimeline, { owner, repo, issue_number, per_page: 100 });
+  const lastTime = (events) => events.reduce((t, e) => Math.max(t, Date.parse(e.created_at)), 0);
+
+  // The cloud agent's PRs for a ticket: PRs from copilot/* branches of this
+  // repository that cross-reference it.
+  async function agentPrs(timeline) {
+    const numbers = new Set(
       timeline
         .filter((e) => e.event === "cross-referenced" && e.source?.issue?.pull_request && e.source.issue.repository?.full_name === fullName)
         .map((e) => e.source.issue.number),
     );
-    for (const number of prNumbers) {
+    const prs = [];
+    for (const number of numbers) {
       const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
-      const ok =
-        pr.merged_at &&
-        pr.base.ref === branch &&
-        /^copilot\//.test(pr.head.ref) &&
-        pr.head.repo?.full_name === fullName &&
-        closingRefs(pr.body, fullName).includes(issue.number);
-      if (!ok) continue;
-      await comment(issue.number, `Merged into \`${branch}\` by #${pr.number}; it reaches \`${defaultBranch}\` with the spec's integration pull request.`);
-      await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "closed", state_reason: "completed" });
-      await removeLabel(issue.number, "status:in-progress");
-      core.info(`Closed #${issue.number} (merged in #${pr.number})`);
-      break;
+      if (/^copilot\//.test(pr.head.ref) && pr.head.repo?.full_name === fullName) prs.push(pr);
     }
+    return prs.sort((a, b) => a.number - b.number);
   }
-  open = await openIssues();
 
-  // 2. Assign unblocked tickets, oldest first, up to MAX_ACTIVE at a time.
-  let active = open.filter((i) => has(i, "status:in-progress")).length;
-  const ready = open.filter((i) => has(i, "ready-for-agent") && !has(i, "status:in-progress")).sort((a, b) => a.number - b.number);
-  for (const listed of ready) {
-    const n = listed.number;
-    if (active >= maxActive) {
-      core.info(`${active} tickets in progress (MAX_ACTIVE=${maxActive}); the rest wait for the next run`);
-      break;
-    }
-    const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: n });
-    if ((issue.issue_dependencies_summary?.blocked_by ?? 0) > 0) {
-      core.info(`#${n} is blocked by ${issue.issue_dependencies_summary.blocked_by} open issue(s)`);
-      continue;
-    }
-    const parent = await parentOf(n);
-    if (parent?.labels.some((l) => l.name === "lane:local")) {
-      core.info(`#${n} belongs to spec #${parent.number}, which is being built locally (lane:local)`);
-      continue;
-    }
-    const approval = await labelledByTrustedActor(n, "ready-for-agent");
-    if (!approval.ok) {
-      await comment(n, `\`ready-for-agent\` was added by @${approval.who}, who lacks write access, so the factory ignored it. A maintainer has to add it.`);
-      await removeLabel(n, "ready-for-agent");
-      continue;
-    }
-    const base = parent && parent.labels.some((l) => l.name === "spec:approved") ? specBranch(parent.number) : defaultBranch;
-    if (base !== defaultBranch) await ensureBranch(base);
-
-    let assigned = null;
+  // Assigns the cloud agent; returns the login that worked, or null.
+  async function assignAgent(n, base) {
     for (const login of COPILOT_LOGINS) {
       try {
         await github.request("POST /repos/{owner}/{repo}/issues/{issue_number}/assignees", {
@@ -146,35 +168,262 @@ module.exports = async ({ github, context, core }) => {
         continue;
       }
       const { data: after } = await github.rest.issues.get({ owner, repo, issue_number: n });
-      if (after.assignees.some((a) => /copilot/i.test(a.login))) {
-        assigned = login;
-        break;
-      }
+      if (after.assignees.some(isCopilot)) return login;
     }
-    if (!assigned) {
-      core.setFailed(
-        `Could not assign the Copilot cloud agent to #${n}. Check that the cloud agent is enabled and that GH_AW_AGENT_TOKEN in the copilot-agent environment is a user token (see docs/factory.md).`,
+    return null;
+  }
+  const baseFor = (parent) => (parent && parent.labels.some((l) => (l.name || l) === "spec:approved") ? specBranch(parent.number) : defaultBranch);
+  const unassignAgent = (issue) => {
+    const logins = issue.assignees.filter(isCopilot).map((a) => a.login);
+    return logins.length ? github.rest.issues.removeAssignees({ owner, repo, issue_number: issue.number, assignees: logins }) : null;
+  };
+
+  async function cancelAgentRuns(branch) {
+    const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, { owner, repo, branch, status: "in_progress", per_page: 100 });
+    for (const run of runs.filter((r) => r.path?.startsWith(AGENT_RUN_PATH))) {
+      await github.rest.actions
+        .cancelWorkflowRun({ owner, repo, run_id: run.id })
+        .then(() => core.info(`cancelled the stuck agent run ${run.id} on ${branch}`))
+        .catch((e) => core.warning(`could not cancel agent run ${run.id}: ${e.message}`));
+    }
+  }
+
+  // Agent sessions this sweep may still start (pause and the daily cap).
+  let budget = Infinity;
+  if (paused) {
+    budget = 0;
+    core.notice("FACTORY_PAUSED is true: no agent sessions, fix rounds or triage re-runs start");
+  } else if (maxSessionsPerDay > 0) {
+    const used = await agentSessionsLastDay({ github, owner, repo, now });
+    budget = Math.max(0, maxSessionsPerDay - used);
+    core.info(`${used} agent session(s) in the last 24 h (cap ${maxSessionsPerDay})`);
+  }
+  function mayStart(what) {
+    if (budget > 0) {
+      budget -= 1;
+      return true;
+    }
+    core.info(`${what}: held (${paused ? "factory paused" : `daily cap of ${maxSessionsPerDay} agent sessions reached`})`);
+    return false;
+  }
+
+  // A ticket in progress whose agent failed, stalled, or lost its PR: retry
+  // (a new session on its PR, or a fresh assignment), then hand to a human.
+  // Retries count from the last time a maintainer made it ready-for-agent.
+  async function watch(issue, parent, timeline, prs) {
+    const n = issue.number;
+    const readyAt = lastTime(timeline.filter((e) => e.event === "labeled" && e.label?.name === "ready-for-agent"));
+    const markers = timeline.filter(
+      (e) => e.event === "commented" && (e.actor || e.user)?.login === me.login && (e.body || "").includes(AGENT_RETRY_MARKER) && Date.parse(e.created_at) > readyAt,
+    );
+    const assignedAt = lastTime(timeline.filter((e) => e.event === "assigned" && isCopilot(e.assignee)));
+    // Only tickets the agent was given: a human may mark their own work in progress.
+    if (!assignedAt && !issue.assignees.some(isCopilot)) return;
+    const since = Math.max(assignedAt || readyAt, lastTime(markers));
+    const open = prs.filter((p) => p.state === "open").pop();
+    const closedPr = open ? null : prs.filter((p) => p.state === "closed" && !p.merged_at).pop();
+    const pr = open ? { title: open.title, draft: open.draft, timeline: await timelineOf(open.number) } : null;
+    const health = agentHealth({ assigned: issue.assignees.some(isCopilot), since, pr, closedPr, now, limits });
+    const action = recoveryAction(health, { retries: markers.length, maxRetries: maxAgentRetries });
+    if (action === "none") return;
+    if (action === "retry" && !mayStart(`#${n} retry`)) return;
+    // A stuck session holds the PR: GitHub queues new @copilot requests behind
+    // it. Cancelling it also records the session as finished.
+    if (open) await cancelAgentRuns(open.head.ref);
+
+    if (action === "retry") {
+      const round = markers.length + 1;
+      if (open) {
+        await comment(
+          open.number,
+          `@copilot Your work on #${n} stopped: ${health.reason}. Please continue from the current state of this branch, finish the ticket and run \`npm test\` again.`,
+        );
+      } else {
+        await unassignAgent(issue);
+        if (!(await assignAgent(n, baseFor(parent)))) throw new Error(`could not re-assign the cloud agent to #${n}`);
+      }
+      await comment(
+        n,
+        [
+          `🔁 ${health.reason[0].toUpperCase()}${health.reason.slice(1)}, so the factory ${open ? `asked the agent to continue on #${open.number}` : "assigned the agent again"} (automatic retry ${round} of ${maxAgentRetries}). [Dispatch run](${runUrl})`,
+          AGENT_RETRY_MARKER,
+        ].join("\n"),
       );
+      core.info(`#${n}: retry ${round} (${health.reason})`);
       return;
     }
-    await github.rest.issues.addLabels({ owner, repo, issue_number: n, labels: ["status:in-progress"] });
-    await removeLabel(n, "ready-for-agent");
-    await comment(n, `🚀 Assigned to the Copilot cloud agent (custom agent \`${customAgent}\`, base branch \`${base}\`). [Dispatch run](${runUrl})`);
-    active += 1;
-    core.info(`Assigned #${n} on ${base}`);
+
+    await unassignAgent(issue);
+    await github.rest.issues.addLabels({ owner, repo, issue_number: n, labels: ["agent:failed", "ready-for-human"] });
+    await removeLabel(n, "status:in-progress");
+    if (open) await github.rest.issues.addLabels({ owner, repo, issue_number: open.number, labels: ["needs-human"] });
+    const retried = markers.length ? ` after ${markers.length} automatic ${markers.length === 1 ? "retry" : "retries"}` : "";
+    await comment(
+      n,
+      [
+        `🧑‍🔧 The cloud agent could not finish this ticket: ${health.reason}${retried}. It is now waiting for a human${open ? `; pull request #${open.number} stays open as it is` : ""}.`,
+        "",
+        "To try the agent again, use **Retry** in the factory cockpit (or remove `agent:failed` and `ready-for-human` and add `ready-for-agent`). Tickets blocked by this one wait until it closes.",
+        "",
+        `[Dispatch run](${runUrl})`,
+      ].join("\n"),
+    );
+    core.info(`#${n}: handed to a human (${health.reason})`);
+  }
+
+  // 1. Tickets in progress: close the ones merged into their spec branch
+  // (from a copilot/* branch of this repository, closing this ticket), and
+  // watch the rest. lane:local tickets belong to a local session.
+  let open = await openIssues();
+  for (const issue of open.filter((i) => has(i, "status:in-progress"))) {
+    await attempt(`#${issue.number}`, async () => {
+      const parent = await parentOf(issue.number);
+      if (parent && has(parent, "lane:local")) return;
+      const timeline = await timelineOf(issue.number);
+      const prs = await agentPrs(timeline);
+      if (parent) {
+        const branch = specBranch(parent.number);
+        const merged = prs.find((pr) => pr.merged_at && pr.base.ref === branch && closingRefs(pr.body, fullName).includes(issue.number));
+        if (merged) {
+          await comment(issue.number, `Merged into \`${branch}\` by #${merged.number}; it reaches \`${defaultBranch}\` with the spec's integration pull request.`);
+          await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "closed", state_reason: "completed" });
+          await removeLabel(issue.number, "status:in-progress");
+          core.info(`Closed #${issue.number} (merged in #${merged.number})`);
+          return;
+        }
+      }
+      await watch(issue, parent, timeline, prs);
+    });
+  }
+  open = await openIssues();
+
+  // 2. Assign unblocked tickets, oldest first, up to MAX_ACTIVE at a time.
+  let active = open.filter((i) => has(i, "status:in-progress")).length;
+  // While plan runs, the breakdown may be half-published: hold every spec ticket.
+  const planning = await attempt("plan runs", async () => {
+    for (const status of ["in_progress", "queued"]) {
+      const { data } = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: "plan.lock.yml", status, per_page: 1 });
+      if (data.total_count > 0) return true;
+    }
+    return false;
+  });
+  const ready = open.filter((i) => has(i, "ready-for-agent") && !has(i, "status:in-progress")).sort((a, b) => a.number - b.number);
+  for (const listed of ready) {
+    const n = listed.number;
+    if (active >= maxActive) {
+      core.info(`${active} tickets in progress (MAX_ACTIVE=${maxActive}); the rest wait for the next run`);
+      break;
+    }
+    if (budget <= 0) {
+      mayStart(`#${n}`);
+      break;
+    }
+    const outcome = await attempt(`#${n}`, async () => {
+      const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: n });
+      if ((issue.issue_dependencies_summary?.blocked_by ?? 0) > 0) {
+        core.info(`#${n} is blocked by ${issue.issue_dependencies_summary.blocked_by} open issue(s)`);
+        return "skipped";
+      }
+      const parent = await parentOf(n);
+      if (parent?.labels.some((l) => l.name === "lane:local")) {
+        core.info(`#${n} belongs to spec #${parent.number}, which is being built locally (lane:local)`);
+        return "skipped";
+      }
+      const parentLabels = parent ? parent.labels.map((l) => l.name || l) : [];
+      if (parentLabels.includes(TICKETS_READY) && !(await labelledByTrustedActor(parent.number, TICKETS_READY)).ok) {
+        await removeLabel(parent.number, TICKETS_READY);
+        parentLabels.splice(parentLabels.indexOf(TICKETS_READY), 1);
+      }
+      const gate = ticketGate(
+        issue.labels.map((l) => l.name || l),
+        parent && { labels: parentLabels, planning: planning !== false },
+      );
+      if (gate === "spec") {
+        await comment(n, "This is a spec, so the factory does not build it directly: add `spec:approved` and the factory splits it into tickets first.");
+        await removeLabel(n, "ready-for-agent");
+        return "skipped";
+      }
+      if (gate) {
+        core.info(`#${n} waits: spec #${parent.number} ${gate === "spec-not-approved" ? "is not approved" : "is still being split into tickets"}`);
+        return "skipped";
+      }
+      const approval = await labelledByTrustedActor(n, "ready-for-agent");
+      if (!approval.ok) {
+        await comment(n, `\`ready-for-agent\` was added by @${approval.who}, who lacks write access, so the factory ignored it. A maintainer has to add it.`);
+        await removeLabel(n, "ready-for-agent");
+        return "skipped";
+      }
+      const base = baseFor(parent);
+      if (base !== defaultBranch) await ensureBranch(base);
+      if (!mayStart(`#${n}`)) return "skipped";
+      if (!(await assignAgent(n, base))) {
+        throw new Error(
+          `could not assign the Copilot cloud agent. Check that the cloud agent is enabled and that GH_AW_AGENT_TOKEN in the copilot-agent environment is a user token (see docs/factory.md).`,
+        );
+      }
+      await github.rest.issues.addLabels({ owner, repo, issue_number: n, labels: ["status:in-progress"] });
+      await removeLabel(n, "ready-for-agent");
+      await comment(n, `🚀 Assigned to the Copilot cloud agent (custom agent \`${customAgent}\`, base branch \`${base}\`). [Dispatch run](${runUrl})`);
+      core.info(`Assigned #${n} on ${base}`);
+      return "assigned";
+    });
+    if (outcome === "assigned") active += 1;
+    // An assignment failure is about the token or the agent, not the ticket.
+    if (outcome === undefined && errors.at(-1)?.includes("could not assign")) break;
+  }
+
+  // 2b. Triage that never ran or never finished (a failed gh-aw run leaves the
+  // issue unlabelled): re-run it once by re-adding `triage`, then flag it.
+  // gh-aw's own "[aw] ... failed" issues are flagged too, never triaged.
+  for (const issue of open) {
+    const labels = issue.labels.map((l) => l.name || l);
+    if (/^\[aw\]/.test(issue.title) && issue.user?.type === "Bot") {
+      if (!labels.includes("factory:failure")) {
+        await attempt(`#${issue.number}`, () => github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: ["factory:failure"] }));
+      }
+      continue;
+    }
+    if (paused || labels.includes("status:in-progress") || triageRetry({ labels, createdAt: issue.created_at, retries: 0, now }) === "none") continue;
+    await attempt(`#${issue.number}`, async () => {
+      const events = await github.paginate(github.rest.issues.listEvents, { owner, repo, issue_number: issue.number, per_page: 100 });
+      const triageLabels = events.filter((e) => e.event === "labeled" && e.label?.name === "triage");
+      const decision = triageRetry({
+        labels,
+        createdAt: issue.created_at,
+        triageLabelledAt: labels.includes("triage") ? triageLabels.at(-1)?.created_at : null,
+        retries: triageLabels.filter((e) => e.actor?.login === me.login).length,
+        now,
+      });
+      if (decision === "retry") {
+        await removeLabel(issue.number, "triage");
+        await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: ["triage"] });
+        core.info(`#${issue.number}: triage never labelled it; re-running triage`);
+      } else if (decision === "giveup") {
+        await removeLabel(issue.number, "triage");
+        await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: ["factory:failure"] });
+        await comment(
+          issue.number,
+          `⚠️ Automatic triage did not complete on this issue, even after a retry. Triage it by hand, or use **Re-triage** in the factory cockpit. [Dispatch run](${runUrl})`,
+        );
+        core.info(`#${issue.number}: triage failed twice; flagged factory:failure`);
+      }
+    });
   }
 
   // 3. Integration PRs for finished specs. A lane:local spec ships through the
   // local session's own local/spec-N pull request instead.
   for (const spec of open.filter((i) => has(i, "spec:approved") && !has(i, "lane:local"))) {
+    await attempt(`spec #${spec.number}`, () => integrate(spec));
+  }
+  async function integrate(spec) {
     const tickets = await subIssues(spec.number);
-    if (!tickets.length || tickets.some((t) => t.state === "open")) continue;
+    if (!tickets.length || tickets.some((t) => t.state === "open")) return;
     const branch = specBranch(spec.number);
-    if (!(await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch(notFound))) continue;
+    if (!(await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch(notFound))) return;
     const { data: cmp } = await github.rest.repos.compareCommits({ owner, repo, base: defaultBranch, head: branch });
-    if (cmp.ahead_by === 0) continue;
+    if (cmp.ahead_by === 0) return;
     const { data: prs } = await github.rest.pulls.list({ owner, repo, head: `${owner}:${branch}`, base: defaultBranch, state: "open" });
-    if (prs.length) continue;
+    if (prs.length) return;
     const { data: pr } = await github.rest.pulls.create({
       owner,
       repo,
@@ -197,13 +446,13 @@ module.exports = async ({ github, context, core }) => {
 
   // 4. Review fix loop on the cloud agent's open, finished PRs. Only this
   // token's own marker comments count, so nobody else can spend or block rounds.
-  const { data: me } = await github.rest.users.getAuthenticated();
   const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: "open", per_page: 100 });
-  for (const pr of prs) {
+  for (const pr of prs) await attempt(`PR #${pr.number}`, () => fixLoop(pr));
+  async function fixLoop(pr) {
     const labels = pr.labels.map((l) => l.name);
     const managedBase = pr.base.ref === defaultBranch || isSpecBranch(pr.base.ref);
-    if (pr.draft || !/^copilot\//.test(pr.head.ref) || pr.head.repo?.full_name !== fullName || !managedBase) continue;
-    if (labels.includes("needs-human") || labels.includes("hold")) continue;
+    if (pr.draft || !/^copilot\//.test(pr.head.ref) || pr.head.repo?.full_name !== fullName || !managedBase) return;
+    if (labels.includes("needs-human") || labels.includes("hold")) return;
 
     const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number, per_page: 100 });
     const reviewedHead = reviews.some((r) => r.user?.type === "Bot" && isCopilotReviewerLogin(r.user.login) && r.commit_id === pr.head.sha);
@@ -223,6 +472,7 @@ module.exports = async ({ github, context, core }) => {
 
     const action = fixLoopAction({ reviewedHead, copilotThreads, busy, requestedForHead, rounds: requests.length, maxRounds: maxFixRounds });
     if (action === "request") {
+      if (!mayStart(`PR #${pr.number} fix round`)) return;
       const round = requests.length + 1;
       await comment(
         pr.number,
@@ -244,4 +494,6 @@ module.exports = async ({ github, context, core }) => {
       core.info(`#${pr.number}: escalated to a human after ${requests.length} fix round(s)`);
     }
   }
+
+  if (errors.length) core.setFailed(`${errors.length} item(s) failed; the rest of the sweep completed:\n- ${errors.join("\n- ")}`);
 };

@@ -1,0 +1,62 @@
+name: Evidence
+
+# Screenshots of the app before (base branch) and after (this pull request),
+# taken by CI rather than by the agent (.github/factory/evidence.cjs). This run
+# has a read-only token; evidence-publish.yml posts the images.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths: ["frontend/**", "backend/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      START_CMD: ${{ vars.FACTORY_START_CMD || 'npm start' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Start the app (base on 3001, pull request on 3000)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          bash scripts/bootstrap.sh
+          PORT=3000 nohup bash -c "$START_CMD" > "$RUNNER_TEMP/after.log" 2>&1 &
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          cd "$RUNNER_TEMP/base"
+          if bash scripts/bootstrap.sh; then
+            PORT=3001 nohup bash -c "$START_CMD" > "$RUNNER_TEMP/before.log" 2>&1 &
+          fi
+      - name: Install Playwright
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" --no-save --no-audit --no-fund playwright@1.65.1
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Take screenshots
+        run: node .github/factory/evidence.cjs
+        env:
+          PLAYWRIGHT_DIR: ${{ runner.temp }}/pw
+          BEFORE_URL: http://localhost:3001
+          AFTER_URL: http://localhost:3000
+          OUT_DIR: ${{ runner.temp }}/evidence
+          EVIDENCE_PATHS: ${{ vars.FACTORY_EVIDENCE_PATHS || '/' }}
+      - if: always()
+        run: tail -n 50 "$RUNNER_TEMP"/*.log || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence
+          path: ${{ runner.temp }}/evidence/*.png
+          if-no-files-found: ignore
+          retention-days: 7

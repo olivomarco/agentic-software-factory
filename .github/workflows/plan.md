@@ -1,5 +1,5 @@
 ---
-description: Human gate. When a maintainer labels a spec issue spec:approved, split it into tracer-bullet tickets (to-tickets skill) as sub-issues with native blocked-by edges, then start dispatch.
+description: Human gate. When a maintainer labels a spec issue spec:approved, split it into tracer-bullet tickets (to-tickets skill) as sub-issues with native blocked-by edges, then label the spec tickets:ready so the dispatcher starts them.
 intent: Turn one approved spec into small, independently mergeable tickets that the dispatcher can hand to the cloud agent in dependency order.
 on:
   issues:
@@ -22,8 +22,8 @@ safe-outputs:
     max: 8
   add-comment:
     max: 1
-  dispatch-workflow:
-    workflows: [dispatch]
+  add-labels:
+    allowed: [tickets:ready]
     max: 1
 ---
 
@@ -36,8 +36,8 @@ Read `.github/skills/to-tickets/SKILL.md`, `docs/agents/issue-tracker.md`,
 and `GLOSSARY.md` and `docs/adr/` if present.
 
 1. Read the issue: the `## Spec` section is what was approved. If there is no
-   spec section, or it already has sub-issues, call `add_comment` explaining
-   why and stop.
+   spec section, it already has sub-issues, or it already has
+   `tickets:ready`, call `add_comment` explaining why and stop.
 2. Explore the code to place the slices. Follow the skill's vertical-slice
    rules: each ticket is a narrow, complete, independently verifiable path
    that fits one agent session. Put any prefactoring first. Aim for 2 to 6
@@ -52,7 +52,10 @@ and `GLOSSARY.md` and `docs/adr/` if present.
 5. Call `add_comment` on the spec with the ticket list and blocking edges, and
    note that the tickets merge into branch `factory/spec-<this issue number>`
    and come back to `main` as one integration pull request.
-6. Call `dispatch_workflow` for `dispatch` with no inputs, to start the
-   unblocked tickets.
+6. Last, only after every ticket is published, call `add_labels` with
+   `tickets:ready` on the spec. The dispatcher builds no ticket of this spec
+   before that label is there and this run has finished, so implementation
+   never starts on a half-published breakdown. If any ticket could not be
+   published, do not add the label: say so in the comment instead.
 
 Do not close or edit the spec issue. Do not change files.

@@ -2,6 +2,10 @@
 // acts with the signed-in user's own identity and permissions.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createRequire } from "node:module";
+
+// Shared with the dispatcher and the project sync, so the queue and the board agree.
+const { issueStage: stage } = createRequire(import.meta.url)("../../factory/policy.cjs");
 
 const run = promisify(execFile);
 
@@ -30,18 +34,6 @@ export async function detectRepo(cwd) {
 
 const names = (labels) => labels.map((l) => l.name);
 
-function stage(labels) {
-  const has = (n) => labels.includes(n);
-  if (has("status:in-progress")) return "in-progress";
-  if (has("ready-for-agent")) return "ready";
-  if (has("spec:approved")) return "approved";
-  if (has("spec")) return "spec";
-  if (has("needs-info")) return "needs-info";
-  if (has("ready-for-human")) return "human";
-  if (has("wontfix")) return "wontfix";
-  return "triage";
-}
-
 // "Risk gate" commit status and check runs of a PR, from statusCheckRollup.
 function gateOf(rollup) {
   const out = { gate: null, gateText: "", checks: [] };
@@ -56,20 +48,49 @@ function gateOf(rollup) {
   return out;
 }
 
-export async function loadState(repo) {
-  const [issues, prs, projectUrl] = await Promise.all([
-    ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues?state=open&per_page=100`]),
-    ghJson([
-      "pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json",
-      "number,title,url,labels,baseRefName,headRefName,isDraft,author,reviewDecision,statusCheckRollup,additions,deletions,changedFiles",
-    ]),
-    gh(["variable", "get", "FACTORY_PROJECT_URL", "--repo", repo]).then((s) => s.trim()).catch(() => ""),
-  ]);
+const FAILED = new Set(["failure", "timed_out", "startup_failure"]);
 
-  const openIssues = issues.flat().filter((i) => !i.pull_request).map((i) => ({
+// Failed workflow runs of the last day that nothing has fixed since: only the
+// latest run per workflow and title counts (a later success or a successful
+// re-run clears it). Dynamic runs (the cloud agent, Copilot code review)
+// cannot be re-run from here.
+async function failedRuns(repo) {
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 19);
+  const { workflow_runs: runs = [] } = await ghJson(["api", `repos/${repo}/actions/runs?per_page=100&created=>=${since}`]);
+  const latest = new Map();
+  for (const r of runs) {
+    if (r.status !== "completed") continue;
+    const key = `${r.workflow_id}:${r.display_title}`;
+    if (!latest.has(key)) latest.set(key, r);
+  }
+  return [...latest.values()]
+    .filter((r) => FAILED.has(r.conclusion))
+    .map((r) => ({
+      id: r.id,
+      workflow: r.name,
+      title: r.display_title,
+      event: r.event,
+      conclusion: r.conclusion,
+      attempt: r.run_attempt,
+      url: r.html_url,
+      at: r.updated_at,
+      rerunnable: !String(r.path || "").startsWith("dynamic/"),
+    }));
+}
+
+// How many recently closed issues and pull requests the cockpit shows.
+const CLOSED_LIMIT = 50;
+
+const isSpec = (i) => i.subIssues > 0 || i.labels.includes("spec") || i.stage === "spec" || i.stage === "approved";
+
+function issueOf(i) {
+  return {
     number: i.number,
     title: i.title,
     url: i.html_url,
+    state: i.state,
+    reason: i.state_reason || null,
+    closedAt: i.closed_at || null,
     labels: names(i.labels),
     stage: stage(names(i.labels)),
     assignees: i.assignees.map((a) => a.login),
@@ -77,31 +98,34 @@ export async function loadState(repo) {
     subIssues: i.sub_issues_summary?.total ?? 0,
     comments: i.comments,
     updated: i.updated_at,
-  }));
+  };
+}
 
-  const specs = [];
-  for (const spec of openIssues.filter((i) => i.subIssues > 0 || i.stage === "spec" || i.stage === "approved")) {
-    const subs = spec.subIssues
-      ? await ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues/${spec.number}/sub_issues?per_page=100`])
-      : [];
-    specs.push({
-      ...spec,
-      branch: `factory/spec-${spec.number}`,
-      tickets: subs.flat().map((t) => ({
-        number: t.number,
-        title: t.title,
-        url: t.html_url,
-        state: t.state,
-        labels: names(t.labels),
-        blockedBy: t.issue_dependencies_summary?.blocked_by ?? 0,
-      })),
-    });
-  }
+async function withTickets(repo, spec) {
+  const subs = spec.subIssues
+    ? await ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues/${spec.number}/sub_issues?per_page=100`])
+    : [];
+  return {
+    ...spec,
+    branch: `factory/spec-${spec.number}`,
+    tickets: subs.flat().map((t) => ({
+      number: t.number,
+      title: t.title,
+      url: t.html_url,
+      state: t.state,
+      labels: names(t.labels),
+      blockedBy: t.issue_dependencies_summary?.blocked_by ?? 0,
+    })),
+  };
+}
 
-  const pulls = prs.map((p) => ({
+function pullOf(p) {
+  return {
     number: p.number,
     title: p.title,
     url: p.url,
+    state: p.state === "MERGED" ? "merged" : p.state === "CLOSED" ? "closed" : "open",
+    closedAt: p.mergedAt || p.closedAt || null,
     labels: names(p.labels),
     base: p.baseRefName,
     head: p.headRefName,
@@ -111,9 +135,41 @@ export async function loadState(repo) {
     size: { additions: p.additions, deletions: p.deletions, files: p.changedFiles },
     risk: names(p.labels).find((l) => l.startsWith("risk:"))?.slice(5) ?? null,
     ...gateOf(p.statusCheckRollup),
-  }));
+  };
+}
 
-  return { repo, projectUrl, fetchedAt: new Date().toISOString(), issues: openIssues, specs, pulls };
+// The most recently closed issues, specs and pull requests, for the cockpit's
+// Closed and All views. Kept apart from the open lists the factory acts on.
+async function loadClosed(repo) {
+  const [issues, prs] = await Promise.all([
+    ghJson(["api", `repos/${repo}/issues?state=closed&sort=updated&per_page=${CLOSED_LIMIT}`]),
+    ghJson([
+      "pr", "list", "--repo", repo, "--state", "closed", "--limit", String(CLOSED_LIMIT), "--json",
+      "number,title,url,labels,baseRefName,headRefName,isDraft,author,state,mergedAt,closedAt,additions,deletions,changedFiles",
+    ]),
+  ]);
+  const closedIssues = issues.filter((i) => !i.pull_request).map(issueOf);
+  const specs = await Promise.all(closedIssues.filter(isSpec).map((s) => withTickets(repo, s)));
+  return { issues: closedIssues, specs, pulls: prs.map(pullOf), limit: CLOSED_LIMIT };
+}
+
+export async function loadState(repo) {
+  const [issues, prs, projectUrl, runs, closed] = await Promise.all([
+    ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues?state=open&per_page=100`]),
+    ghJson([
+      "pr", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json",
+      "number,title,url,labels,baseRefName,headRefName,isDraft,author,reviewDecision,statusCheckRollup,additions,deletions,changedFiles",
+    ]),
+    gh(["variable", "get", "FACTORY_PROJECT_URL", "--repo", repo]).then((s) => s.trim()).catch(() => ""),
+    failedRuns(repo).catch(() => []),
+    loadClosed(repo).catch(() => null),
+  ]);
+
+  const openIssues = issues.flat().filter((i) => !i.pull_request).map(issueOf);
+  const specs = await Promise.all(openIssues.filter(isSpec).map((s) => withTickets(repo, s)));
+  const pulls = prs.map(pullOf);
+
+  return { repo, projectUrl, fetchedAt: new Date().toISOString(), issues: openIssues, specs, pulls, failedRuns: runs, closed };
 }
 
 // The only changes the cockpit makes: each one maps to a factory primitive.
@@ -122,12 +178,19 @@ export const ACTIONS = {
   "approve-spec": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "spec:approved"]),
   "lane-local": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "lane:local"]),
   retriage: (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "triage"]),
-  grill: (repo, n) => gh(["issue", "comment", String(n), "--repo", repo, "--body", "/grill"]),
   spec: (repo, n) => gh(["issue", "comment", String(n), "--repo", repo, "--body", "/spec"]),
   wontfix: (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "wontfix"]),
   "human-approve": (repo, n) => gh(["pr", "edit", String(n), "--repo", repo, "--add-label", "human-approved"]),
   hold: (repo, n) => gh(["pr", "edit", String(n), "--repo", repo, "--add-label", "hold"]),
   unhold: (repo, n) => gh(["pr", "edit", String(n), "--repo", repo, "--remove-label", "hold"]),
+  // Failure recovery. retry-agent restarts the agent with a fresh retry budget.
+  "retry-agent": (repo, n) =>
+    gh(["issue", "edit", String(n), "--repo", repo, "--remove-label", "agent:failed,ready-for-human", "--add-label", "ready-for-agent"]),
+  "retriage-failed": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--remove-label", "factory:failure", "--add-label", "triage"]),
+  "close-report": (repo, n) => gh(["issue", "close", String(n), "--repo", repo, "--comment", "Handled from the factory cockpit."]),
+  // A run that never started has no failed jobs to re-run: re-run all of it.
+  "rerun-run": (repo, id) =>
+    gh(["run", "rerun", String(id), "--failed", "--repo", repo]).catch(() => gh(["run", "rerun", String(id), "--repo", repo])),
   "gate-pr": (repo, n) => gh(["workflow", "run", "risk-gate.yml", "--repo", repo, "-f", `pr=${n}`]),
   dispatch: (repo) => gh(["workflow", "run", "dispatch.yml", "--repo", repo]),
 };
