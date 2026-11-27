@@ -23,6 +23,11 @@ factory specifics:
    the parent spec, otherwise test at the public interface the ticket
    changes (HTTP routes, exported functions), and list the seams you chose in
    the pull request. Run single test files as you go and `npm test` at the end.
+   The `tests-bite` check reruns the test files you add or change against
+   the base branch: at least one must fail there and all must pass on your
+   branch, so watch each new test fail before you make it pass. A
+   `refactor:`, `docs:`, `test:`, `ci:` or `build:` title skips the check;
+   use one only when it is true.
    **For a bug** (the issue or its parent spec is labelled `bug`, or it
    reports something broken, throwing, failing or slow), diagnose before
    fixing with the `diagnosing-bugs` skill

@@ -107,6 +107,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Code review | `.github/skills/code-review/SKILL.md` | Copilot code review: Standards and Spec axes, reads the ticket and its parent spec |
 | Review fix loop | `.github/factory/dispatch.cjs` (step 4) | `@copilot` addresses Copilot's comments, `FACTORY_MAX_FIX_ROUNDS` times, then `needs-human`; also `needs-human` when a round ends without a new commit |
 | CI | `.github/workflows/ci.yml` | `test` (app) and `factory` (policy tests) |
+| Tests bite | `.github/workflows/tests-bite.yml`, `.github/factory/tests-bite.cjs` | `tests-bite` check: the test files a PR adds or changes must fail on the base branch and pass on the PR. Source changes without a test fail; `docs`/`refactor`/`test`/`ci`/`build` titles, PRs without source changes and integration PRs skip |
 | Implementer | `.github/agents/factory-implementer.agent.md` | Cloud agent: implement, tdd, code-review and pr skills, `Fixes #n` |
 | Environment | `scripts/bootstrap.sh`, `.devcontainer/devcontainer.json` | One setup for Codespaces, the cloud agent (`copilot-setup-steps.yml`) and CI |
 | Skills | `.github/skills/` | Matt Pocock's skills (MIT), see `.github/skills/README.md` |
@@ -186,7 +187,8 @@ read/write works too.
 |---|---|---|
 | `FACTORY_MAX_ACTIVE` | 3 | Tickets the cloud agent works on at once |
 | `FACTORY_MAX_FIX_ROUNDS` | 2 | Times the dispatcher asks `@copilot` to address a review before `needs-human` |
-| `FACTORY_REQUIRED_CHECKS` | `test` | Checks that must pass before an automatic merge |
+| `FACTORY_REQUIRED_CHECKS` | `test,tests-bite` | Checks that must pass before an automatic merge |
+| `FACTORY_TEST_CMD` | `node --test` | Command `tests-bite` runs with one test file appended (for example `npx jest` or `npx vitest run`) |
 | `FACTORY_REQUIRE_COPILOT_REVIEW` | `true` | Wait for a Copilot review of the current head |
 | `FACTORY_AUTO_MERGE_DEFAULT_BRANCH` | `true` | Allow automatic merges into the default branch |
 | `FACTORY_AUTO_MERGE_INTEGRATION` | `false` | Treat integration PRs like any other PR |
@@ -273,8 +275,8 @@ create duplicates; re-run the whole workflow instead.
 
 `docs/ruleset-main.json` (default branch) and `docs/ruleset-factory.json`
 (`factory/**`) require a pull request, resolved review threads, code owner
-review (CODEOWNERS covers only the factory's own files) and the `test` and
-`factory/risk-gate` checks, and enable automatic Copilot code review. On
+review (CODEOWNERS covers only the factory's own files) and the `test`,
+`tests-bite` and `factory/risk-gate` checks, and enable automatic Copilot code review. On
 `factory/**` the checks are not enforced on branch creation
 (`do_not_enforce_on_create`); otherwise the dispatcher cannot create
 `factory/spec-N` (422 "Reference update failed"). No
@@ -300,7 +302,7 @@ off for team repositories.
 - `risk-gate.yml` uses `pull_request_target` and always checks out the default
   branch, so a pull request cannot change the rules it is judged by. Changes to
   `.github/` are high risk and need code owner review.
-- Both required checks are pinned to the GitHub Actions app, so a PAT or
+- The required checks are pinned to the GitHub Actions app, so a PAT or
   another app cannot post them. Another *workflow* still could: `CI` runs the
   pull request's own definition (that is what `pull_request` means), so a branch
   that edits a workflow and asks for `statuses: write` could fake `test` or
@@ -346,6 +348,10 @@ off for team repositories.
   no `[Standards]` / `[Spec]` prefixes, it did not load the skill.
 - Every fix round is another cloud agent session and another review: they
   bill as premium requests, hence the round cap.
+- `tests-bite` reruns whole test files, not single tests: a changed file
+  counts as biting when any of its tests fails on the base branch. A failing
+  `test` or `tests-bite` check is not sent back to the agent; the PR waits
+  for a human (the gate shows which check is missing).
 - `lane:local` only stops new assignments. Tickets the cloud agent already
   started finish on their own.
 
