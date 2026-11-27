@@ -207,6 +207,13 @@ review (CODEOWNERS covers only the factory's own files) and the `test` and
 approval count is required: the risk gate's status carries that decision, so
 low-risk changes can merge without a human and high-risk ones cannot.
 
+In a solo repository the only code owner cannot approve their own pull
+request. `scripts/setup-repo.sh --admin-bypass` lets repository admins merge a
+default-branch pull request past the ruleset (the "bypass rules" checkbox):
+direct pushes stay blocked, and the bypass is visible on the pull request. Use
+it for your own changes to the factory, after adding `human-approved`; leave it
+off for team repositories.
+
 ## Security
 
 - The agent token lives in an environment restricted to the default branch;

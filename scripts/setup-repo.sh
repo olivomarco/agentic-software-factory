@@ -5,10 +5,14 @@
 # the agent token, CODEOWNERS owner and a Project board.
 # Safe to re-run (labels, rulesets and settings are updated in place).
 #
-# Usage: scripts/setup-repo.sh [--repo OWNER/REPO] [--owner @team] [--no-ruleset] [--project TITLE]
+# Usage: scripts/setup-repo.sh [--repo OWNER/REPO] [--owner @team] [--no-ruleset] [--admin-bypass] [--project TITLE]
 #   --repo        target repository (default: the current directory's remote)
 #   --owner       replace the placeholder owner in .github/CODEOWNERS (local edit, commit it yourself)
 #   --no-ruleset  skip the branch rulesets
+#   --admin-bypass let repository admins merge a pull request into the default
+#                 branch past its ruleset (pull requests only, never direct
+#                 pushes). For solo repositories, where the only code owner
+#                 cannot approve their own pull request. Re-run without it to remove.
 #   --project     create (or reuse) a user/org Project with this title and link it
 #                 (needs the 'project' scope: gh auth refresh -s project)
 # Environment:
@@ -20,14 +24,16 @@ set -euo pipefail
 repo=""
 owner=""
 ruleset=true
+admin_bypass=false
 project=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo="$2"; shift 2 ;;
     --owner) owner="$2"; shift 2 ;;
     --no-ruleset) ruleset=false; shift ;;
+    --admin-bypass) admin_bypass=true; shift ;;
     --project) project="$2"; shift 2 ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -114,8 +120,9 @@ fi
 if $ruleset; then
   echo "== Branch rulesets"
   err="$(mktemp)"
+  prepared="$(mktemp)"
   fallback="$(mktemp)"
-  trap 'rm -f "$err" "$fallback"' EXIT
+  trap 'rm -f "$err" "$prepared" "$fallback"' EXIT
   if ! all="$(gh api "repos/$repo/rulesets" --jq '.[] | "\(.id) \(.name)"' 2>"$err")"; then
     cat "$err" >&2
     echo "  Rulesets are unavailable for $repo (private repo on a free plan, or no admin rights)." >&2
@@ -133,12 +140,26 @@ if $ruleset; then
         gh api -X POST "repos/$repo/rulesets" --input "$1" >/dev/null
       fi
     }
-    if apply "$file" 2>"$err"; then
-      echo "  '$name' applied"
+    # Admins (role id 5) may bypass the default branch's ruleset through a pull
+    # request only; every other ruleset, and every run without the flag, has none.
+    python3 - "$file" "$prepared" "$admin_bypass" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+main = "~DEFAULT_BRANCH" in d["conditions"]["ref_name"]["include"]
+d["bypass_actors"] = (
+    [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}]
+    if sys.argv[3] == "true" and main
+    else []
+)
+json.dump(d, open(sys.argv[2], "w"))
+PY
+    if apply "$prepared" 2>"$err"; then
+      $admin_bypass && [ "$file" = "$root/docs/ruleset-main.json" ] && bypass_note=" (admins may bypass via pull request)" || bypass_note=""
+      echo "  '$name' applied$bypass_note"
       continue
     fi
     # The copilot_code_review rule is not available on every plan.
-    python3 - "$file" "$fallback" <<'PY'
+    python3 - "$prepared" "$fallback" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 d["rules"] = [r for r in d["rules"] if r["type"] != "copilot_code_review"]
