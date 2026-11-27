@@ -21,12 +21,19 @@ const instances = new Map();
 // agent, approving a PR) stay with the human clicking in the canvas.
 const AGENT_ACTIONS = ["spec", "retriage", "retriage-failed", "rerun-run", "gate-pr", "dispatch"];
 
+// Grilling can stall on a question words cannot settle (how a state model
+// behaves, what a page should look like): offer a throwaway prototype then.
+function prototypeLine(repo, number) {
+  return `When a question about a state model or a UI cannot be settled in words, offer a throwaway prototype with the prototype skill at ${join(repoRoot, ".github/skills/prototype/SKILL.md")} and build it only if I agree. We are before the spec, so do not fold anything into the real code: put the verdict (and any snippet that pins the decision, such as a reducer or a type) in the summary, and offer to push the prototype to a branch named prototype/issue-${number || "<issue>"}-<slug> in ${repo}, linked from the summary, asking before the push. Never leave prototype files in the working tree on the default branch.`;
+}
+
 function grillPrompt(repo, number) {
   const skill = join(repoRoot, ".github/skills/grill-with-docs/SKILL.md");
   return [
     `Grill me about issue #${number} in ${repo}, using the grill-with-docs skill at ${skill} (read it and the files it references first).`,
     `Start by reading the issue and its comments with \`gh issue view ${number} --repo ${repo} --comments\`, including triage's questions, the reporter's answers and any earlier grilling summary, and the code it touches.`,
     "Ask one question at a time with your recommended answer, using the ask_user tool, and keep going until we have a shared understanding.",
+    prototypeLine(repo, number),
     `When we are done, post one comment on the issue with \`gh issue comment ${number} --repo ${repo} --body-file -\` titled "## Grilling summary (local session)": the decisions with their reasons, the resolved terms, and anything still open.`,
     "If a term or decision belongs in GLOSSARY.md or docs/adr/, list it in the comment; do not commit files.",
     "Finally, ask me whether to comment /spec on the issue to have the factory write the spec.",
@@ -44,6 +51,7 @@ function architecturePrompt(repo, number) {
       ? `Start from the candidates the architecture scout posted on issue #${number} (\`gh issue view ${number} --repo ${repo} --comments\`): check them against the current code, drop any that no longer hold, then write the HTML report and open it in the browser.`
       : "Write the HTML report and open it in the browser.",
     "Then ask me which candidate to explore, with the ask_user tool, and grill me through it one question at a time.",
+    prototypeLine(repo, number),
     `When we settle on a deepening, file it as an issue with \`gh issue create --repo ${repo} --label refactor --body-file -\`: the problem, the deepened module and its seam, what tests change, and a "## Grilling summary (local session)" with the decisions and their reasons${number > 0 ? `, linking back to #${number}` : ""}. Then ask me whether to comment /spec on it so the factory writes the spec.`,
     "GLOSSARY.md and ADR changes the skill makes stay uncommitted: show me the diff and ask before committing or pushing anything.",
   ].join("\n");

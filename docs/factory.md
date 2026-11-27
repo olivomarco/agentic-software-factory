@@ -201,6 +201,8 @@ read/write works too.
   and the Copilot review are green.
 - **Big or vague request:** in the cockpit, press **Grill here** and answer
   the interview live; the session posts a `## Grilling summary` on the issue.
+  When a state-model or UI question needs to be seen, it offers a throwaway
+  prototype (`prototype` skill); the verdict lands in the summary.
   Grilling is canvas-only: it is a fast back-and-forth that needs the code and
   docs at hand, which an issue thread cannot give. When only the reporter
   knows the answers, triage asks them on the issue (`needs-info`). Comment `/spec`,

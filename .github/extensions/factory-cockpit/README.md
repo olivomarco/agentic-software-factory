@@ -18,7 +18,7 @@ another repository: "open the factory cockpit for OWNER/REPO".
 
 | Button | What happens |
 |---|---|
-| Grill here | Sends a prompt to this CLI session: the agent reads the issue, interviews you with the `grill-with-docs` skill (one question at a time) and posts a `## Grilling summary (local session)` comment on the issue |
+| Grill here | Sends a prompt to this CLI session: the agent reads the issue, interviews you with the `grill-with-docs` skill (one question at a time) and posts a `## Grilling summary (local session)` comment on the issue. When a state-model or UI question cannot be settled in words, it offers a throwaway prototype (`prototype` skill): the verdict goes in the summary, the prototype on a `prototype/issue-N-*` branch if you agree |
 | Architecture review (toolbar), Review here (on an `[architecture]` issue) | Sends a prompt to this CLI session: the `improve-codebase-architecture` skill writes an HTML report of deepening candidates (from a fresh scan, or checking the scout's), grills you through the one you pick and files the agreed refactor as a `refactor` issue, ready for `/spec`. Glossary and ADR edits stay uncommitted until you say so |
 | /spec | Comments the slash command; the gh-aw workflow writes the spec on the issue |
 | Build here | On an approved spec: adds `lane:local` (the dispatcher stops assigning its tickets) and sends a prompt that builds the whole spec in this session with the `implement-spec` skill on `local/spec-N`, then opens one pull request into the default branch (always high risk). Asks before every push |
