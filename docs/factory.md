@@ -207,7 +207,7 @@ read/write works too.
 | `FACTORY_TEST_CMD` | `node --test` | Command `tests-bite` runs with one test file appended (for example `npx jest` or `npx vitest run`) |
 | `FACTORY_REQUIRE_COPILOT_REVIEW` | `true` | Wait for a Copilot review of the current head |
 | `FACTORY_AUTO_MERGE_DEFAULT_BRANCH` | `true` | Allow automatic merges into the default branch |
-| `FACTORY_AUTO_MERGE_INTEGRATION` | `false` | Treat integration PRs like any other PR |
+| `FACTORY_AUTO_MERGE_INTEGRATION` | `false` | Treat integration PRs like any other PR (`scripts/setup-repo.sh --auto-merge-integration on` sets it) |
 | `FACTORY_MAX_AGENT_RETRIES` | 1 | Automatic retries of a stalled or failed agent session before the ticket goes to a human |
 | `FACTORY_AGENT_NO_PR_MINUTES` | 30 | Minutes after assignment without an agent PR before the session counts as stalled |
 | `FACTORY_AGENT_SESSION_MINUTES` | 90 | Minutes an agent session may run before it counts as stalled |
