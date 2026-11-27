@@ -248,7 +248,7 @@ test("tests-bite asks for a test that fails on base and passes on head", () => {
   assert.strictEqual(biteMode({ title: "Initial plan", files: ["frontend/app.js"] }).mode, "fail");
   // Types that need no new test, and changes without source code, skip.
   assert.strictEqual(biteMode({ title: "refactor: x", files: ["backend/app.js"] }).mode, "skip");
-  assert.strictEqual(biteMode({ title: "feat: x", files: ["docs/a.md", ".github/factory/policy.cjs"] }).mode, "skip");
+  assert.strictEqual(biteMode({ title: "feat: x", files: ["docs/a.md", ".github/factory/policy.cjs", "scripts/setup-repo.sh"] }).mode, "skip");
   assert.strictEqual(biteMode({ title: "Spec #3: x", files: ["backend/app.js"], headRef: "factory/spec-3" }).mode, "skip");
   assert.strictEqual(biteMode({ title: "feat: x", files: ["src/test/java/FooTest.java", "src/main/java/Foo.java"] }).mode, "run");
 

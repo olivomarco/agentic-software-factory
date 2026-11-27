@@ -369,7 +369,7 @@ function projectValues(item) {
 // (docs, refactor, test, ci, build) skip the check; so do changes that touch
 // no source code.
 const TEST_FILE = /(^|\/)(tests?|__tests__|src\/test)\/|\.(test|spec)\.[cm]?[jt]sx?$|Tests?\.(java|kt|cs)$/;
-const NON_SOURCE = /^(\.github|\.devcontainer|docs|samples)\/|\.(md|txt|png|jpe?g|svg|gif)$|^(LICENSE|CODEOWNERS|\.gitignore)$/;
+const NON_SOURCE = /^(\.github|\.devcontainer|docs|samples|scripts)\/|\.(md|txt|png|jpe?g|svg|gif)$|^(LICENSE|CODEOWNERS|\.gitignore)$/;
 const BITE_SKIP_TYPES = ["documentation", "refactor", "tests", "ci", "dependencies"];
 
 function isTestFile(path) {
