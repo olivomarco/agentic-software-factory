@@ -224,9 +224,14 @@ if [ -n "$project" ]; then
     echo "  created '$project' (#$number)"
   fi
   gh project link "$number" --owner "$powner" --repo "$repo" >/dev/null 2>&1 || true
-  gh variable set FACTORY_PROJECT_URL --repo "$repo" \
-    --body "$(gh project view "$number" --owner "$powner" --format json --jq .url)" >/dev/null
+  project_url="$(gh project view "$number" --owner "$powner" --format json --jq .url)"
+  gh variable set FACTORY_PROJECT_URL --repo "$repo" --body "$project_url" >/dev/null
   echo "  '$project' (#$number) linked; URL stored in the FACTORY_PROJECT_URL variable"
+  # New projects are private: give the board the repository's visibility.
+  visibility="$(gh repo view "$repo" --json visibility --jq .visibility)"
+  [ "$visibility" = PUBLIC ] || visibility=PRIVATE
+  gh project edit "$number" --owner "$powner" --visibility "$visibility" >/dev/null
+  echo "  board visibility: $visibility (same as the repository)"
   node "$root/scripts/setup-project.cjs" "$powner" "$number"
   if [ -n "${FACTORY_PROJECT_TOKEN:-}" ]; then
     gh secret set FACTORY_PROJECT_TOKEN --repo "$repo" --env "$env_name" --body "$FACTORY_PROJECT_TOKEN" >/dev/null
@@ -246,7 +251,9 @@ fi
 cat <<EOF
 
 Still manual:
-  - Enable the Copilot cloud agent and decide on "Require approval for workflow runs":
+${project_url:+  - Project default repository (no API for it): $project_url/settings: set the
+    Default repository to $repo, so issues created on the board land there.
+}  - Enable the Copilot cloud agent and decide on "Require approval for workflow runs":
     https://github.com/$repo/settings/copilot
     Turn it off only where the 'workflows: admins only' push ruleset applied above
     (organization repositories): otherwise an agent branch could edit a workflow and

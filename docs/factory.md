@@ -111,7 +111,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Code review | `.github/skills/code-review/SKILL.md` | Copilot code review: Standards and Spec axes, reads the ticket and its parent spec |
 | Review fix loop | `.github/factory/dispatch.cjs` (step 4) | `@copilot` addresses Copilot's comments, `FACTORY_MAX_FIX_ROUNDS` times, then `needs-human`; also `needs-human` when a round ends without a new commit |
 | CI | `.github/workflows/ci.yml` | `test` (app) and `factory` (policy tests) |
-| Tests bite | `.github/workflows/tests-bite.yml`, `.github/factory/tests-bite.cjs` | `tests-bite` check: the test files a PR adds or changes must fail on the base branch and pass on the PR. Source changes without a test fail; `docs`/`refactor`/`test`/`ci`/`build` titles, PRs without source changes and integration PRs skip |
+| Tests bite | `.github/workflows/tests-bite.yml`, `.github/factory/tests-bite.cjs` | `tests-bite` check: the test files a PR adds or changes must fail on the base branch and pass on the PR. Source changes without a test fail (`.github/`, `scripts/`, `docs/`, `samples/` and Markdown are not source); `docs`/`refactor`/`test`/`ci`/`build` titles, PRs without source changes and integration PRs skip |
 | CodeQL | `.github/workflows/codeql.yml` | `analyze` check: CodeQL `security-extended` on the app (JavaScript/TypeScript) and on the factory's own workflows (`actions`), on every PR, on pushes to `main` and `factory/**`, and weekly. GitHub turns the results into a `CodeQL` check on the PR; the `code_scanning` ruleset rule blocks merging new high/critical security alerts or errors |
 | Dependency review | `.github/workflows/dependency-review.yml` | `dependency-review` check: fails a PR that adds a dependency with a known high or critical vulnerability |
 | Evidence | `.github/workflows/evidence.yml` + `evidence-publish.yml`, `.github/factory/evidence*.cjs` | For PRs touching `frontend/` or `backend/`: Playwright screenshots of the base branch and the PR (phone and desktop, light and dark), stored on the `factory-evidence` branch and posted as one Before/After comment. Taken by CI, not by the agent |
@@ -174,6 +174,9 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
   **Risk** (Low, High, from the risk gate's labels).
 - Views: **Factory** (board by Status), **Needs a human**, **Specs** (with
   parent issue and sub-issue progress) and **Pull requests**.
+- The board gets the repository's visibility (new projects start private)
+  and is linked to it. Its **default repository**, where issues created on
+  the board go, has no API: set it once under the project's Settings.
 
 `project-sync.yml` keeps it current: it adds every issue and pull request and
 sets the three fields from labels and state, after every issue event, after
