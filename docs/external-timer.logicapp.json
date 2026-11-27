@@ -1,0 +1,76 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "repo": {
+        "type": "String"
+      },
+      "branch": {
+        "type": "String",
+        "defaultValue": "main"
+      },
+      "token": {
+        "type": "SecureString"
+      }
+    },
+    "triggers": {
+      "Every_10_minutes": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 10
+        }
+      }
+    },
+    "actions": {
+      "Dispatch": {
+        "type": "Http",
+        "runAfter": {},
+        "inputs": {
+          "method": "POST",
+          "uri": "https://api.github.com/repos/@{parameters('repo')}/actions/workflows/dispatch.yml/dispatches",
+          "headers": {
+            "Authorization": "Bearer @{parameters('token')}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "factory-tick"
+          },
+          "body": {
+            "ref": "@{parameters('branch')}"
+          }
+        },
+        "runtimeConfiguration": {
+          "secureData": {
+            "properties": [
+              "inputs"
+            ]
+          }
+        }
+      },
+      "Risk_gate": {
+        "type": "Http",
+        "runAfter": {},
+        "inputs": {
+          "method": "POST",
+          "uri": "https://api.github.com/repos/@{parameters('repo')}/actions/workflows/risk-gate.yml/dispatches",
+          "headers": {
+            "Authorization": "Bearer @{parameters('token')}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "factory-tick"
+          },
+          "body": {
+            "ref": "@{parameters('branch')}"
+          }
+        },
+        "runtimeConfiguration": {
+          "secureData": {
+            "properties": [
+              "inputs"
+            ]
+          }
+        }
+      }
+    },
+    "outputs": {}
+  }
+}

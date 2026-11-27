@@ -349,6 +349,16 @@ module.exports = async ({ github, context, core }) => {
   }
   await rerunInfraFailure().catch((e) => core.warning(`could not re-run the CI run: ${e.message}`));
 
+  // A merged pull request (by a human, or by this gate on an earlier run)
+  // frees the next tickets: start the dispatcher now rather than at its next
+  // schedule. It runs with the agent token, which pull_request_target into a
+  // factory/spec-* branch cannot reach, so it is dispatched on the default branch.
+  if (context.eventName === "pull_request_target" && context.payload.action === "closed") {
+    if (!context.payload.pull_request.merged) return;
+    await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: "dispatch.yml", ref: repoInfo.default_branch });
+    return core.info(`#${context.payload.pull_request.number} merged: dispatcher started`);
+  }
+
   for (const n of await prNumbers()) await evaluate(n);
   await core.summary.write();
 };
