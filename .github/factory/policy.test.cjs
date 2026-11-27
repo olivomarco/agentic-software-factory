@@ -1,6 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const {
+  issueStage,
+  PROJECT_FIELDS,
+  projectValues,
   classifyRisk,
   closingRefs,
   isCopilotDone,
@@ -170,4 +173,30 @@ test("describeLabels combines ticket type, conventional title and door", () => {
   assert.deepStrictEqual(describeLabels({ title: "feat!: drop v1 API" }), { add: ["enhancement", "door:one-way"], oneWay: true });
   assert.deepStrictEqual(describeLabels({ title: "Spec #4: dark mode", body: "**Door:** one-way" }).add, ["door:one-way"]);
   assert.deepStrictEqual(describeLabels({ title: "chore: tidy" }).add, []);
+});
+
+test("project values follow the factory's stages", () => {
+  const issue = (labels, extra = {}) => projectValues({ state: "open", title: "x", labels: labels.map((name) => ({ name })), ...extra });
+  assert.deepStrictEqual(issue([]), { Status: "Triage", Kind: "Other", Risk: null });
+  assert.strictEqual(issue(["bug", "status:in-progress"], { parent_issue_url: "u" }).Kind, "Ticket");
+  assert.strictEqual(issue(["bug", "agent:failed", "ready-for-human"]).Status, "Needs attention");
+  assert.deepStrictEqual(issue(["spec:approved"], { sub_issues_summary: { total: 2 } }), { Status: "Spec approved", Kind: "Spec", Risk: null });
+  assert.strictEqual(issue(["factory:failure"], { title: "[aw] Triage failed" }).Kind, "Report");
+  assert.strictEqual(issue(["bug"], { state: "closed", state_reason: "completed" }).Status, "Done");
+  assert.strictEqual(issue(["bug"], { state: "closed", state_reason: "not_planned" }).Status, "Won't fix");
+
+  const pr = (labels, extra = {}) => projectValues({ state: "open", title: "Fix", labels, pull_request: { merged_at: null }, ...extra });
+  assert.deepStrictEqual(pr(["risk:low"]), { Status: "In review", Kind: "Pull request", Risk: "Low" });
+  assert.strictEqual(pr(["risk:high"]).Status, "Needs human");
+  assert.strictEqual(pr(["risk:high", "human-approved"]).Status, "In review");
+  assert.strictEqual(pr([], { title: "[WIP] Fix" }).Status, "In progress");
+  assert.strictEqual(pr(["risk:high"], { state: "closed", pull_request: { merged_at: "t" } }).Status, "Done");
+  assert.strictEqual(pr([], { state: "closed" }).Status, "Won't fix");
+
+  // Every value the sync can write exists as an option.
+  const options = (f) => PROJECT_FIELDS[f].map(([n]) => n);
+  for (const labels of [["agent:failed"], [], ["needs-info"], ["spec"], ["spec:approved"], ["ready-for-agent"], ["status:in-progress"], ["ready-for-human"], ["wontfix"]]) {
+    assert.ok(options("Status").includes(issue(labels).Status), labels.join());
+  }
+  assert.strictEqual(issueStage(["ready-for-agent", "status:in-progress"]), "in-progress");
 });
