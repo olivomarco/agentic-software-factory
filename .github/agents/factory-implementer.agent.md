@@ -27,7 +27,9 @@ factory specifics:
    the base branch: at least one must fail there and all must pass on your
    branch, so watch each new test fail before you make it pass. A
    `refactor:`, `docs:`, `test:`, `ci:` or `build:` title skips the check;
-   use one only when it is true.
+   use one only when it is true. CodeQL (`analyze`) and `dependency-review`
+   also run on your pull request: a new high-severity alert or a vulnerable
+   dependency blocks the merge, so fix it rather than explain it.
    **For a bug** (the issue or its parent spec is labelled `bug`, or it
    reports something broken, throwing, failing or slow), diagnose before
    fixing with the `diagnosing-bugs` skill

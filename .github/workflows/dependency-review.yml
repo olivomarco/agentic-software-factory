@@ -1,0 +1,17 @@
+name: Dependency review
+
+# Fails a PR that adds a dependency with a known high or critical
+# vulnerability (actions/dependency-review-action, fed by the dependency graph).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
