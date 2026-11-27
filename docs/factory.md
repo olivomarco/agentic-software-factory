@@ -100,6 +100,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Spec | `.github/workflows/spec.md` | `/spec` comment: appends `## Spec`, labels `spec`, optional draft docs PR (glossary, ADR) |
 | Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then labels the spec `tickets:ready`; dispatch runs when plan completes |
 | Architecture scout | `.github/workflows/architecture-scout.md` | Weekly (or on demand): improve-codebase-architecture steps 1-2 on recent hot spots, posts up to 4 deepening candidates as one `[architecture]` issue (older ones closed). Proposes only; a human picks one with **Review here** in the cockpit |
+| Scorecard | `.github/workflows/scorecard.yml`, `.github/factory/scorecard.cjs` | Weekly (Monday 06:17 UTC, or on demand): a `[factory] Scorecard` issue comparing the last 7 days with the 7 before — agent PRs merged and abandoned, success rate, merged by the factory vs handled by a human, fix rounds, retries, alerts, lead time, agent sessions, Copilot reviews, reverts. GitHub data only, no model; the previous scorecard is closed |
 | Dispatch | `.github/workflows/dispatch.yml`, `.github/factory/dispatch.cjs` | Assigns the cloud agent, closes merged tickets, opens integration PRs |
 | Risk gate | `.github/workflows/risk-gate.yml`, `.github/factory/risk-gate.cjs` | Risk labels, `factory/risk-gate` status, automatic merge |
 | PR labels | risk gate, `.github/labeler.yml` + `.github/workflows/labeler.yml`, `.github/release.yml` | Type labels from the linked ticket (or its spec) and the Conventional Commits title (`bug`, `enhancement`, `documentation`, `refactor`, `tests`, `ci`, `dependencies`), `door:one-way` from Merge Danger or a `!` title, path labels (`documentation`, `tests`, `ci`, `dependencies`, `factory`); release notes are grouped by them |
@@ -364,6 +365,10 @@ off for team repositories.
   it now and then (`git push origin --delete factory-evidence`), older
   comments then show broken images. Screenshots use the app's synthetic
   data, so they show layout and styling, not real content.
+- The scorecard measures lead time from PR opened to merged (not from
+  ticket to merged), counts reverts by `Revert` commit titles on the default
+  branch, and counts a merged PR as human-handled when it carries `risk:high`,
+  `needs-human` or `human-approved`. It reads at most the last 14 days.
 - `lane:local` only stops new assignments. Tickets the cloud agent already
   started finish on their own.
 

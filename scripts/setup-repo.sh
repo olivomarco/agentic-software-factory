@@ -68,6 +68,7 @@ create_label "status:in-progress" fbca04 "The cloud agent is working on this"
 # Failure recovery
 create_label "agent:failed"       b60205 "The cloud agent failed or stalled, even after a retry: a human decides"
 create_label "factory:failure"    d93f0b "A factory workflow failed on this (gh-aw failure report, triage that never finished)"
+create_label "factory:scorecard"  5319e7 "Weekly factory scorecard (scorecard.yml)"
 create_label "documentation"      0075ca "Docs, glossary or ADR"
 # Risk gate
 # Describe pull requests (risk gate + actions/labeler, grouped by .github/release.yml)
