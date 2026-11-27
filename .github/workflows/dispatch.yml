@@ -7,15 +7,20 @@ name: Dispatch
 # which also recovers from failures: stuck or failed agent sessions are retried
 # once, then handed to a human; triage that never finished is re-run once.
 # Scheduled runs are best effort (GitHub delays or drops them under load), so
-# events and the cockpit's Dispatch button start the sweep too. Off-peak
-# minutes, since the top of the hour is when schedules are dropped most.
+# events start the sweep too: ticket labels and closes, a finished plan, a
+# finished cloud agent session, a merged pull request (the risk gate dispatches
+# it), the cockpit's Dispatch button and an external timer
+# (docs/external-timer.md). Off-peak minutes for the fallback schedule, since
+# the top of the hour is when schedules are dropped most.
 # Tickets of a spec start only after the whole plan run has finished
 # (workflow_run), never from inside it: see ticketGate in policy.cjs.
 on:
   issues:
     types: [labeled, closed]
   workflow_run:
-    workflows: ["Plan the approved spec"]
+    # "Copilot cloud agent" is the agent's dynamic workflow: when GitHub
+    # delivers its completion, the watchdog sees a failed session at once.
+    workflows: ["Plan the approved spec", "Copilot cloud agent"]
     types: [completed]
   workflow_dispatch:
   schedule:

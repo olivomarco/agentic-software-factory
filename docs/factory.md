@@ -103,6 +103,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Dispatch | `.github/workflows/dispatch.yml`, `.github/factory/dispatch.cjs` | Assigns the cloud agent, closes merged tickets, opens integration PRs |
 | Risk gate | `.github/workflows/risk-gate.yml`, `.github/factory/risk-gate.cjs` | Risk labels, `factory/risk-gate` status, automatic merge |
 | PR labels | risk gate, `.github/labeler.yml` + `.github/workflows/labeler.yml`, `.github/release.yml` | Type labels from the linked ticket (or its spec) and the Conventional Commits title (`bug`, `enhancement`, `documentation`, `refactor`, `tests`, `ci`, `dependencies`), `door:one-way` from Merge Danger or a `!` title, path labels (`documentation`, `tests`, `ci`, `dependencies`, `factory`); release notes are grouped by them |
+| External timer | `scripts/factory-tick.sh`, `docs/external-timer.md` (+ Logic App definition) | Starts the dispatcher and gate sweeps every 10 minutes from a scheduler you trust; GitHub's own schedules stay as a fallback |
 | Policy | `.github/factory/policy.cjs` (+ tests) | Pure rules shared by both scripts |
 | Code review | `.github/skills/code-review/SKILL.md` | Copilot code review: Standards and Spec axes, reads the ticket and its parent spec |
 | Review fix loop | `.github/factory/dispatch.cjs` (step 4) | `@copilot` addresses Copilot's comments, `FACTORY_MAX_FIX_ROUNDS` times, then `needs-human`; also `needs-human` when a round ends without a new commit |
@@ -265,7 +266,11 @@ hands the work to a human with a label; the cockpit gathers it all under
 
 Scheduled runs are best effort: GitHub delays them and may skip them, and on a
 quiet repository they may not run for hours. Events (labels, merges, CI) and the
-cockpit's **Dispatch** button drive the factory; the schedule is a safety net.
+cockpit's **Dispatch** button drive the factory: a merged pull request starts
+the dispatcher at once (through the risk gate), and so does a finished cloud
+agent session when GitHub delivers that `workflow_run` event. For unattended
+operation add the external timer (`docs/external-timer.md`); the schedule is
+then the last safety net.
 The cockpit also lists every workflow whose latest run in the last 24 hours
 failed, with **Re-run failed jobs**.
 
