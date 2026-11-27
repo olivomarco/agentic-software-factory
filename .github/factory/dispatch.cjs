@@ -3,9 +3,13 @@
 //   1. close tickets whose PR was merged into a spec branch (closing keywords
 //      only fire on the default branch);
 //   2. assign the Copilot cloud agent to unblocked `ready-for-agent` issues,
-//      targeting factory/spec-<parent> when the parent is an approved spec;
-//   3. open the integration PR for every approved spec whose tickets are done.
-const { specBranch, closingRefs } = require("./policy.cjs");
+//      targeting factory/spec-<parent> when the parent is an approved spec,
+//      except tickets of a `lane:local` spec (built by implement-spec locally);
+//   3. open the integration PR for every approved spec whose tickets are done;
+//   4. review fix loop: ask @copilot to address Copilot code review comments on
+//      its PRs, at most MAX_FIX_ROUNDS times, then label the PR `needs-human`.
+//      @copilot only answers users with write access, hence the agent token.
+const { specBranch, closingRefs, isSpecBranch, copilotBusy, isCopilotReviewerLogin, fixLoopAction, parseFixRequest } = require("./policy.cjs");
 
 const COPILOT_LOGINS = ["copilot-swe-agent[bot]", "copilot-swe-agent"];
 const WRITE_ROLES = new Set(["admin", "maintain", "write"]);
@@ -14,6 +18,7 @@ module.exports = async ({ github, context, core }) => {
   const { owner, repo } = context.repo;
   const fullName = `${owner}/${repo}`;
   const maxActive = Number(process.env.MAX_ACTIVE || 3);
+  const maxFixRounds = Number(process.env.MAX_FIX_ROUNDS || 2);
   const customAgent = process.env.CUSTOM_AGENT || "factory-implementer";
   const runUrl = `${context.serverUrl}/${fullName}/actions/runs/${context.runId}`;
   const { data: repoInfo } = await github.rest.repos.get({ owner, repo });
@@ -112,13 +117,17 @@ module.exports = async ({ github, context, core }) => {
       core.info(`#${n} is blocked by ${issue.issue_dependencies_summary.blocked_by} open issue(s)`);
       continue;
     }
+    const parent = await parentOf(n);
+    if (parent?.labels.some((l) => l.name === "lane:local")) {
+      core.info(`#${n} belongs to spec #${parent.number}, which is being built locally (lane:local)`);
+      continue;
+    }
     const approval = await labelledByTrustedActor(n, "ready-for-agent");
     if (!approval.ok) {
       await comment(n, `\`ready-for-agent\` was added by @${approval.who}, who lacks write access, so the factory ignored it. A maintainer has to add it.`);
       await removeLabel(n, "ready-for-agent");
       continue;
     }
-    const parent = await parentOf(n);
     const base = parent && parent.labels.some((l) => l.name === "spec:approved") ? specBranch(parent.number) : defaultBranch;
     if (base !== defaultBranch) await ensureBranch(base);
 
@@ -155,8 +164,9 @@ module.exports = async ({ github, context, core }) => {
     core.info(`Assigned #${n} on ${base}`);
   }
 
-  // 3. Integration PRs for finished specs.
-  for (const spec of open.filter((i) => has(i, "spec:approved"))) {
+  // 3. Integration PRs for finished specs. A lane:local spec ships through the
+  // local session's own local/spec-N pull request instead.
+  for (const spec of open.filter((i) => has(i, "spec:approved") && !has(i, "lane:local"))) {
     const tickets = await subIssues(spec.number);
     if (!tickets.length || tickets.some((t) => t.state === "open")) continue;
     const branch = specBranch(spec.number);
@@ -183,5 +193,55 @@ module.exports = async ({ github, context, core }) => {
     });
     await comment(spec.number, `All tickets are done. Integration pull request: #${pr.number}`);
     core.info(`Opened integration PR #${pr.number} for spec #${spec.number}`);
+  }
+
+  // 4. Review fix loop on the cloud agent's open, finished PRs. Only this
+  // token's own marker comments count, so nobody else can spend or block rounds.
+  const { data: me } = await github.rest.users.getAuthenticated();
+  const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: "open", per_page: 100 });
+  for (const pr of prs) {
+    const labels = pr.labels.map((l) => l.name);
+    const managedBase = pr.base.ref === defaultBranch || isSpecBranch(pr.base.ref);
+    if (pr.draft || !/^copilot\//.test(pr.head.ref) || pr.head.repo?.full_name !== fullName || !managedBase) continue;
+    if (labels.includes("needs-human") || labels.includes("hold")) continue;
+
+    const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number, per_page: 100 });
+    const reviewedHead = reviews.some((r) => r.user?.type === "Bot" && isCopilotReviewerLogin(r.user.login) && r.commit_id === pr.head.sha);
+    const q = `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved isOutdated comments(first:1){nodes{author{login}}}}}}}}`;
+    const threads = (await github.graphql(q, { owner, repo, number: pr.number })).repository.pullRequest.reviewThreads.nodes;
+    const copilotThreads = threads.filter(
+      (t) => !t.isResolved && !t.isOutdated && isCopilotReviewerLogin(t.comments.nodes[0]?.author?.login),
+    ).length;
+    const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number, per_page: 100 });
+    const requests = comments
+      .filter((c) => c.user?.login === me.login)
+      .map((c) => ({ ...parseFixRequest(c.body), at: c.created_at }))
+      .filter((r) => r.sha);
+    const timeline = await github.paginate(github.rest.issues.listEventsForTimeline, { owner, repo, issue_number: pr.number, per_page: 100 });
+    const busy = copilotBusy(timeline, { requestedAt: requests.map((r) => r.at) });
+    const requestedForHead = requests.some((r) => r.sha === pr.head.sha);
+
+    const action = fixLoopAction({ reviewedHead, copilotThreads, busy, requestedForHead, rounds: requests.length, maxRounds: maxFixRounds });
+    if (action === "request") {
+      const round = requests.length + 1;
+      await comment(
+        pr.number,
+        [
+          `@copilot Please address the ${copilotThreads} unresolved Copilot code review comment(s) on this pull request.`,
+          "Fix the valid ones, reply on each one you decline with the reason, keep the description's Evidence and Merge Danger current, and run `npm test` again.",
+          "",
+          `_Review fix round ${round} of ${maxFixRounds}. [Dispatch run](${runUrl})_`,
+          `<!-- factory:fix-request sha=${pr.head.sha} round=${round} -->`,
+        ].join("\n"),
+      );
+      core.info(`#${pr.number}: asked Copilot to address ${copilotThreads} review comment(s), round ${round}`);
+    } else if (action === "escalate") {
+      await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: ["needs-human"] });
+      await comment(
+        pr.number,
+        `🧑‍⚖️ Copilot code review still has ${copilotThreads} open comment(s) after ${requests.length} fix round(s) (or Copilot left them unchanged), so this pull request now needs a human: resolve or answer the threads, then approve. [Dispatch run](${runUrl})`,
+      );
+      core.info(`#${pr.number}: escalated to a human after ${requests.length} fix round(s)`);
+    }
   }
 };

@@ -92,6 +92,7 @@ function toast(msg) {
 
 async function act(action, number, button) {
   if (action === "approve-spec" && !confirm(`Approve the spec on #${number}? The factory will split it into tickets and start building.`)) return;
+  if (action === "build-local" && !confirm(`Build spec #${number} in this Copilot CLI session? Its tickets leave the cloud agent's queue.`)) return;
   if (action === "human-approve" && !confirm(`Approve the current head of PR #${number}? It will merge once checks pass.`)) return;
   if (button) button.disabled = true;
   try {
@@ -144,7 +145,10 @@ function renderSpecs(main) {
   for (const s of state.specs) {
     const done = s.tickets.filter((t) => t.state === "closed").length;
     const pills = [pill(s.stage === "approved" ? "approved" : "awaiting approval", s.stage === "approved" ? "ok" : "warn"), pill(`${done}/${s.tickets.length} done`), pill(s.branch)];
-    const c = card(s, pills, s.stage === "spec" ? ISSUE_ACTIONS.spec : []);
+    const local = (s.labels || []).includes("lane:local");
+    if (local) pills.push(pill("lane:local", "warn"));
+    const specActions = s.stage === "spec" ? ISSUE_ACTIONS.spec : s.stage === "approved" && !local ? [["build-local", "Build here"]] : [];
+    const c = card(s, pills, specActions);
     const ul = el("ul", { class: "tree" });
     for (const t of s.tickets) {
       const icon = t.state === "closed" ? "✅" : t.labels.includes("status:in-progress") ? "🤖" : t.blockedBy ? "⛔" : "⏳";

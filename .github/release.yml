@@ -1,0 +1,17 @@
+# Categories for automatically generated release notes, from pull request labels.
+changelog:
+  exclude:
+    labels: [wontfix, duplicate, invalid]
+  categories:
+    - title: Breaking or hard to roll back
+      labels: [door:one-way]
+    - title: Features
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Documentation
+      labels: [documentation]
+    - title: Maintenance
+      labels: [refactor, tests, ci, dependencies, factory]
+    - title: Other changes
+      labels: ["*"]

@@ -55,10 +55,19 @@ create_label "spec:approved"      0e8a16 "Human gate: break the spec into ticket
 create_label "status:in-progress" fbca04 "The cloud agent is working on this"
 create_label "documentation"      0075ca "Docs, glossary or ADR"
 # Risk gate
+# Describe pull requests (risk gate + actions/labeler, grouped by .github/release.yml)
+create_label "refactor"           d4c5f9 "Restructures code without changing behaviour"
+create_label "tests"              bfd4f2 "Adds or changes tests"
+create_label "ci"                 ededed "Workflows and automation"
+create_label "dependencies"       0366d6 "Dependency or build changes"
+create_label "factory"            5319e7 "Touches the factory itself (.github, scripts, devcontainer)"
+create_label "door:one-way"       b60205 "Hard to roll back (Merge Danger): always reviewed by a human"
 create_label "risk:low"           c2e0c6 "Small, no sensitive paths: merges automatically"
 create_label "risk:high"          e99695 "Needs a human approval before merge"
 create_label "hold"               b60205 "Never merge automatically"
 create_label "human-approved"     0e8a16 "A human approved the current head (cleared on push)"
+create_label "needs-human"        b60205 "The review fix loop gave up: a human resolves and approves"
+create_label "lane:local"         5319e7 "Spec built locally with implement-spec; the dispatcher skips its tickets"
 
 echo "== Repository settings"
 gh repo edit "$repo" --enable-squash-merge --delete-branch-on-merge >/dev/null
@@ -169,8 +178,15 @@ Still manual:
     Turning it off lets Copilot's PR checks start automatically; the agent token stays
     out of reach because only $default_branch can use the $env_name environment.
   - Push the compiled workflows (.github/workflows/*.lock.yml) to the default branch.
+  - Copilot code review (https://github.com/$repo/settings/copilot): review effort
+    "Adaptive". It reads .github/skills/code-review; open a test PR and check its
+    [Spec] comments quote the ticket. If they do not, add the GitHub MCP server
+    under Copilot > MCP servers so the review can read issues.
+  - Codespaces prebuilds (https://github.com/$repo/settings/codespaces): add a
+    configuration for $default_branch with .devcontainer/devcontainer.json, and
+    set an idle timeout and a 2-core machine limit in your codespaces policies.
   - Replace the placeholder owner in .github/CODEOWNERS if you did not pass --owner.
   - Optional repository variables (Settings > Secrets and variables > Actions > Variables):
-    FACTORY_MAX_ACTIVE (3), FACTORY_REQUIRE_COPILOT_REVIEW (true),
+    FACTORY_MAX_ACTIVE (3), FACTORY_MAX_FIX_ROUNDS (2), FACTORY_REQUIRE_COPILOT_REVIEW (true),
     FACTORY_AUTO_MERGE_DEFAULT_BRANCH (true), FACTORY_AUTO_MERGE_INTEGRATION (false).
 EOF

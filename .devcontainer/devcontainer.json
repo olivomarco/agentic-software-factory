@@ -1,0 +1,35 @@
+{
+  "name": "Software factory",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "containerEnv": {
+    "FACTORY_INSTALL_COPILOT_CLI": "true"
+  },
+  // Same setup as the cloud agent (copilot-setup-steps.yml) and CI.
+  "postCreateCommand": "bash scripts/bootstrap.sh",
+  // Reviewers land on a running app: a Codespace opened from a pull request
+  // starts the app on that branch.
+  "postAttachCommand": {
+    "app": "npm start"
+  },
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Todo app",
+      "onAutoForward": "openPreview"
+    }
+  },
+  "customizations": {
+    "codespaces": {
+      "openFiles": ["docs/factory.md"]
+    },
+    "vscode": {
+      "extensions": ["GitHub.copilot-chat", "GitHub.vscode-pull-request-github"]
+    }
+  },
+  "hostRequirements": {
+    "cpus": 2
+  }
+}

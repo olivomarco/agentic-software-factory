@@ -1,4 +1,6 @@
 # Changes to the factory itself need a human owner's review.
 /.github/ @olivomarco
+/.devcontainer/ @olivomarco
+/scripts/ @olivomarco
 /CODING_STANDARDS.md @olivomarco
 /AGENTS.md @olivomarco

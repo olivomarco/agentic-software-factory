@@ -11,7 +11,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@microsoft/copilot-sdk/extension";
-import { ACTIONS, detectRepo, loadState } from "./github.mjs";
+import { ACTIONS, cloudTicketsInFlight, detectRepo, loadState } from "./github.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../../..");
@@ -30,6 +30,18 @@ function grillPrompt(repo, number) {
     `When we are done, post one comment on the issue with \`gh issue comment ${number} --repo ${repo} --body-file -\` titled "## Grilling summary (local session)": the decisions with their reasons, the resolved terms, and anything still open.`,
     "If a term or decision belongs in GLOSSARY.md or docs/adr/, list it in the comment; do not commit files.",
     "Finally, ask me whether to comment /spec on the issue to have the factory write the spec.",
+  ].join("\n");
+}
+
+function buildPrompt(repo, number) {
+  const skills = join(repoRoot, ".github/skills");
+  return [
+    `Build the approved spec #${number} in ${repo} with the implement-spec skill at ${skills}/implement-spec/SKILL.md (read it, and the implement, tdd, code-review and pr skills it relies on, first). The issue tracker conventions are in ${join(repoRoot, "docs/agents/issue-tracker.md")}.`,
+    `The spec is the issue's ## Spec section; its tickets are its sub-issues with blocked-by edges (\`gh api repos/${repo}/issues/${number}/sub_issues\`). The spec is labelled lane:local, so the factory's dispatcher will not hand these tickets to the cloud agent; skip any ticket that is already closed or labelled status:in-progress.`,
+    `Use \`local/spec-${number}\` as the integration branch (factory/** is protected and only takes pull requests). Create it from \`factory/spec-${number}\` if that branch exists, since it may hold tickets the cloud agent already merged, otherwise from the default branch. Give each ticket its own worktree and branch, as the skill says.`,
+    `Open the draft pull request from local/spec-${number} into the default branch, titled "Spec #${number}: <spec title>", with a body written with the pr skill that starts with "Closes #${number}" and one "Closes #<ticket>" line per ticket, and fill Merge Danger honestly (\`**Door:** one-way\` or \`**Door:** two-way\`).`,
+    `Before marking the pull request ready, merge the latest origin/factory/spec-${number} (if it exists) into local/spec-${number} again, so nothing the cloud agent merged there is left behind.`,
+    "Ask me before every push. When everything is merged into the integration branch and reviewed, mark the pull request ready: the risk gate treats local/spec-* pull requests as high risk, so a human approves it.",
   ].join("\n");
 }
 
@@ -53,6 +65,20 @@ async function perform(entry, action, number) {
   if (action === "grill-local") {
     await session.send({ prompt: grillPrompt(entry.repo, number) });
     return `Grilling #${number} in the Copilot CLI chat`;
+  }
+  if (action === "build-local") {
+    if (!(Number.isInteger(number) && number > 0)) throw new CanvasError("bad_input", "A spec number is required");
+    const busy = await cloudTicketsInFlight(entry.repo, number);
+    if (busy.length) {
+      throw new CanvasError(
+        "busy",
+        `The cloud agent is still working on ${busy.map((n) => `#${n}`).join(", ")}; build locally after those pull requests merge or close.`,
+      );
+    }
+    await ACTIONS["lane-local"](entry.repo, number);
+    entry.cache = null;
+    await session.send({ prompt: buildPrompt(entry.repo, number) });
+    return `Spec #${number} is now lane:local; building it in the Copilot CLI chat`;
   }
   const fn = ACTIONS[action];
   if (!fn) throw new CanvasError("unknown_action", `Unknown action ${action}`);

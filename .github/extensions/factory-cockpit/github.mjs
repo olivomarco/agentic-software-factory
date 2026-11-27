@@ -12,6 +12,18 @@ export async function gh(args, { cwd } = {}) {
 
 const ghJson = async (args, opts) => JSON.parse((await gh(args, opts)) || "null");
 
+// Open tickets of a spec the cloud agent is still working on. A spec cannot
+// switch to the local lane while any exist: their PRs would land on
+// factory/spec-N after the local branch was cut from it.
+export async function cloudTicketsInFlight(repo, number) {
+  const pages = await ghJson(["api", "--paginate", "--slurp", `repos/${repo}/issues/${number}/sub_issues?per_page=100`]);
+  return pages
+    .flat()
+    .filter((t) => t.state === "open")
+    .filter((t) => t.labels?.some((l) => l.name === "status:in-progress") || t.assignees?.some((a) => /copilot/i.test(a.login)))
+    .map((t) => t.number);
+}
+
 export async function detectRepo(cwd) {
   return (await gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], { cwd })).trim();
 }
@@ -108,6 +120,7 @@ export async function loadState(repo) {
 export const ACTIONS = {
   "ready-for-agent": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "ready-for-agent"]),
   "approve-spec": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "spec:approved"]),
+  "lane-local": (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "lane:local"]),
   retriage: (repo, n) => gh(["issue", "edit", String(n), "--repo", repo, "--add-label", "triage"]),
   grill: (repo, n) => gh(["issue", "comment", String(n), "--repo", repo, "--body", "/grill"]),
   spec: (repo, n) => gh(["issue", "comment", String(n), "--repo", repo, "--body", "/spec"]),

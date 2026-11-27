@@ -1,6 +1,18 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { classifyRisk, closingRefs, isCopilotDone, humanApprovals, isSpecBranch } = require("./policy.cjs");
+const {
+  classifyRisk,
+  closingRefs,
+  isCopilotDone,
+  humanApprovals,
+  isSpecBranch,
+  mergeDangerDoor,
+  describeLabels,
+  copilotBusy,
+  blockingThreads,
+  fixLoopAction,
+  parseFixRequest,
+} = require("./policy.cjs");
 
 const file = (filename, additions = 10, deletions = 0) => ({ filename, additions, deletions });
 
@@ -15,7 +27,57 @@ test("size, file count, sensitive paths, renames and hold make it high risk", ()
   assert.match(classifyRisk({ files: [file(".github/workflows/ci.yml", 1)] }).reasons[0], /\.github\/workflows\/ci\.yml/);
   const renamed = { ...file("evil.yml", 0), previous_filename: ".github/workflows/ci.yml" };
   assert.strictEqual(classifyRisk({ files: [renamed] }).risk, "high");
+  assert.strictEqual(classifyRisk({ files: [file("scripts/bootstrap.sh", 1)] }).risk, "high");
+  assert.strictEqual(classifyRisk({ files: [file(".devcontainer/devcontainer.json", 1)] }).risk, "high");
   assert.strictEqual(classifyRisk({ files: [file("a.js")], labels: ["hold"] }).risk, "high");
+  assert.strictEqual(classifyRisk({ files: [file("a.js")], labels: ["needs-human"] }).risk, "high");
+});
+
+test("a one-way door raises the risk, a two-way door never lowers it", () => {
+  assert.strictEqual(mergeDangerDoor("## Merge Danger\n\n**Door:** One-way\n"), "one-way");
+  assert.strictEqual(mergeDangerDoor("**Door:** two way"), "two-way");
+  assert.strictEqual(mergeDangerDoor("no section"), null);
+  assert.match(classifyRisk({ files: [file("a.js")], door: "one-way" }).reasons[0], /one-way door/);
+  assert.strictEqual(classifyRisk({ files: [file("a.js", 400)], door: "two-way" }).risk, "high");
+});
+
+test("the agent is busy between work_started and work_finished, or right after a fix request", () => {
+  const ev = (event, created_at) => ({ event, created_at });
+  const now = Date.parse("2026-01-01T12:00:00Z");
+  const done = [ev("copilot_work_started", "2026-01-01T10:00:00Z"), ev("copilot_work_finished", "2026-01-01T10:30:00Z")];
+  assert.strictEqual(copilotBusy(done, { now }), false);
+  assert.strictEqual(copilotBusy([...done, ev("copilot_work_started", "2026-01-01T11:00:00Z")], { now }), true);
+  assert.strictEqual(copilotBusy(done, { now, requestedAt: ["2026-01-01T11:50:00Z"] }), true);
+  assert.strictEqual(copilotBusy(done, { now, requestedAt: ["2026-01-01T11:00:00Z"] }), false, "stale request");
+  assert.strictEqual(copilotBusy(done, { now, requestedAt: ["2026-01-01T10:10:00Z"] }), false, "already handled");
+});
+
+test("outdated Copilot threads stop blocking, human threads do not", () => {
+  const threads = [
+    { isResolved: false, isOutdated: true, author: "copilot-pull-request-reviewer" },
+    { isResolved: false, isOutdated: false, author: "copilot-pull-request-reviewer" },
+    { isResolved: false, isOutdated: true, author: "ann" },
+    { isResolved: true, isOutdated: false, author: "bob" },
+  ];
+  assert.deepStrictEqual(blockingThreads(threads).map((t) => t.author), ["copilot-pull-request-reviewer", "ann"]);
+});
+
+test("fix-request markers must be complete", () => {
+  const sha = "a".repeat(40);
+  assert.deepStrictEqual(parseFixRequest(`x\n<!-- factory:fix-request sha=${sha} round=2 -->`), { sha, round: 2 });
+  assert.strictEqual(parseFixRequest("<!-- factory:fix-request sha=abc round=1 -->"), null);
+  assert.strictEqual(parseFixRequest(null), null);
+});
+
+test("the fix loop asks Copilot at most maxRounds times, then escalates", () => {
+  const base = { reviewedHead: true, copilotThreads: 2, busy: false, requestedForHead: false, rounds: 0 };
+  assert.strictEqual(fixLoopAction(base), "request");
+  assert.strictEqual(fixLoopAction({ ...base, rounds: 2 }), "escalate");
+  assert.strictEqual(fixLoopAction({ ...base, copilotThreads: 0 }), "none");
+  assert.strictEqual(fixLoopAction({ ...base, busy: true }), "none");
+  assert.strictEqual(fixLoopAction({ ...base, requestedForHead: true }), "escalate", "attempt ended without a new commit");
+  assert.strictEqual(fixLoopAction({ ...base, requestedForHead: true, busy: true }), "none", "attempt still running");
+  assert.strictEqual(fixLoopAction({ ...base, reviewedHead: false }), "none");
 });
 
 test("closingRefs finds same-repo closing keywords only", () => {
@@ -47,4 +109,12 @@ test("approvals count only on the head, from humans other than the author", () =
 test("spec branches are recognised by prefix", () => {
   assert.strictEqual(isSpecBranch("factory/spec-12"), true);
   assert.strictEqual(isSpecBranch("main"), false);
+});
+
+test("describeLabels combines ticket type, conventional title and door", () => {
+  const r = describeLabels({ title: "[WIP] fix(cart): round totals", body: "**Door:** two-way", issueLabels: ["enhancement", "ready-for-agent"] });
+  assert.deepStrictEqual([r.add.sort(), r.oneWay], [["bug", "enhancement"], false]);
+  assert.deepStrictEqual(describeLabels({ title: "feat!: drop v1 API" }), { add: ["enhancement", "door:one-way"], oneWay: true });
+  assert.deepStrictEqual(describeLabels({ title: "Spec #4: dark mode", body: "**Door:** one-way" }).add, ["door:one-way"]);
+  assert.deepStrictEqual(describeLabels({ title: "chore: tidy" }).add, []);
 });

@@ -1,0 +1,17 @@
+# Path labels for pull requests (actions/labeler, .github/workflows/labeler.yml).
+# Type labels (bug, enhancement, refactor, door:one-way) come from the risk gate.
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["docs/**", "**/*.md", "GLOSSARY.md"]
+tests:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.test.*", "**/test/**", "**/tests/**"]
+ci:
+  - changed-files:
+      - any-glob-to-any-file: [".github/workflows/**"]
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file: ["**/package.json", "**/package-lock.json"]
+factory:
+  - changed-files:
+      - any-glob-to-any-file: [".github/**", "scripts/**", ".devcontainer/**", "AGENTS.md"]

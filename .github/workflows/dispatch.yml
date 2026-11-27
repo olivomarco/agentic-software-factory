@@ -1,7 +1,8 @@
 name: Dispatch
 
-# Hands unblocked ready-for-agent tickets to the Copilot cloud agent and opens
-# integration PRs for finished specs. Deterministic: no model runs here.
+# Hands unblocked ready-for-agent tickets to the Copilot cloud agent, opens
+# integration PRs for finished specs and runs the review fix loop on Copilot's
+# PRs. Deterministic: no model runs here.
 # Every trigger runs the same idempotent sweep (.github/factory/dispatch.cjs).
 on:
   issues:
@@ -30,6 +31,7 @@ jobs:
       - uses: actions/github-script@v7
         env:
           MAX_ACTIVE: ${{ vars.FACTORY_MAX_ACTIVE || '3' }}
+          MAX_FIX_ROUNDS: ${{ vars.FACTORY_MAX_FIX_ROUNDS || '2' }}
         with:
           github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
           script: |

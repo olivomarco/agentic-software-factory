@@ -8,7 +8,10 @@ change is made as you, with your permissions.
 ## Open it
 
 Start `copilot` in this repository (project extensions load from
-`.github/extensions/`), then ask: "open the factory cockpit". To point it at
+`.github/extensions/`), then ask: "open the factory cockpit". In a Codespace
+the Copilot CLI is preinstalled by `scripts/bootstrap.sh`; run `/login` once,
+and `gh auth login` if the Project column stays empty (the codespace token is
+scoped to the repository). The canvas port is forwarded like any other. To point it at
 another repository: "open the factory cockpit for OWNER/REPO".
 
 ## Buttons
@@ -17,6 +20,7 @@ another repository: "open the factory cockpit for OWNER/REPO".
 |---|---|
 | Grill here | Sends a prompt to this CLI session: the agent reads the issue, interviews you with the `grill-with-docs` skill (one question at a time) and posts a `## Grilling summary (local session)` comment on the issue |
 | /grill, /spec | Comments the slash command; the gh-aw workflow answers on the issue |
+| Build here | On an approved spec: adds `lane:local` (the dispatcher stops assigning its tickets) and sends a prompt that builds the whole spec in this session with the `implement-spec` skill on `local/spec-N`, then opens one pull request into the default branch (always high risk). Asks before every push |
 | Ready for agent | Adds `ready-for-agent` (gate) |
 | Approve spec | Adds `spec:approved` after a confirmation (gate) |
 | Approve head | Adds `human-approved` to a high-risk PR (gate, cleared on the next push) |

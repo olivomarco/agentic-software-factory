@@ -5,9 +5,9 @@ name: Copilot Setup Steps
 on:
   workflow_dispatch:
   push:
-    paths: [.github/workflows/copilot-setup-steps.yml]
+    paths: [.github/workflows/copilot-setup-steps.yml, scripts/bootstrap.sh]
   pull_request:
-    paths: [.github/workflows/copilot-setup-steps.yml]
+    paths: [.github/workflows/copilot-setup-steps.yml, scripts/bootstrap.sh]
 
 jobs:
   copilot-setup-steps:
@@ -19,5 +19,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      # The project is dependency-free, so there is nothing to install.
-      # Stacks with dependencies run `npm ci` (or the Maven/Gradle equivalent) here.
+      # Shared with the dev container (Codespaces) and CI.
+      - run: bash scripts/bootstrap.sh

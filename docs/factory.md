@@ -7,7 +7,8 @@ at **risky** changes; they no longer review every diff.
 
 Everything runs on GitHub primitives: gh-aw agentic workflows, native
 sub-issues and blocked-by dependencies, the Copilot cloud agent, Copilot code
-review, rulesets, environments and a Project board. Two deterministic
+review (with a repository skill), rulesets, environments, Codespaces and a
+Project board. Two deterministic
 workflows (`dispatch.yml`, `risk-gate.yml`) do the bookkeeping without a model.
 
 ```text
@@ -27,12 +28,18 @@ triage.md ........ category + state labels, agent brief or questions (triage ski
 dispatch.yml ..... assigns unblocked tickets to the cloud agent (max 3 at a time)
                    base = factory/spec-N for spec tickets, else the default branch
   v
-cloud agent ...... draft PR (factory-implementer agent, tests, screenshots, "Fixes #n")
+cloud agent ...... draft PR: factory-implementer agent, implement + tdd skills,
+                   PR body by the pr skill (diagram, before/after evidence,
+                   Merge Danger door + blast radius), "Fixes #n"
   v
 risk-gate.yml .... marks it ready, asks for a Copilot review, labels risk:low / risk:high,
                    publishes the factory/risk-gate status
-  |-- risk:low  + CI green + Copilot reviewed + no open threads -> squash merge
-  |-- risk:high -> HUMAN: approve (or add human-approved) -> merge
+  |
+Copilot code review  [Standards] / [Spec] comments (code-review skill: ticket + parent spec)
+  |-- comments -> dispatch.yml asks @copilot to fix them (max 2 rounds, then needs-human)
+  |-- risk:low  + CI green + Copilot reviewed + no blocking threads -> squash merge
+  |-- risk:high -> gate comment with "Open in Codespace" (app running on the PR branch)
+  |               HUMAN: approve (or add human-approved) -> merge
   v
 dispatch.yml ..... closes the ticket, assigns the tickets it unblocked; when every
                    ticket of a spec is done, opens factory/spec-N -> main
@@ -49,6 +56,8 @@ integration PR ... always waits for a human (one review per feature, not per tic
 | Risky pull request | write access | approve the current head, or add `human-approved` (it approves only the head it was added on) |
 | Feature integration | write access | approve the `factory/spec-N` pull request |
 | Never merge automatically | anyone with triage | add `hold` |
+| Review fix loop gave up | write access | resolve the threads on the `needs-human` PR, then approve |
+| Build a spec yourself | write access | **Build here** in the cockpit (labels the spec `lane:local`) |
 
 Runs never wait for a human: every stage reacts to an event (comment, label,
 review) and exits, so the factory survives a weekend of nobody looking.
@@ -58,14 +67,26 @@ review) and exits, so the factory survives a weekend of nobody looking.
 A pull request is **low risk** when all of these hold:
 
 - at most 300 changed lines and 12 files;
-- it touches none of `.github/`, `package.json` / `package-lock.json`,
-  `AGENTS.md`, `CODING_STANDARDS.md`, `docs/adr/` (renames count on both sides);
-- it carries no `hold` label;
+- it touches none of `.github/`, `.devcontainer/`, `scripts/`,
+  `package.json` / `package-lock.json`, `AGENTS.md`, `CODING_STANDARDS.md`,
+  `docs/adr/` (renames count on both sides);
+- it carries no `hold` or `needs-human` label;
+- its description does not declare a one-way door (`**Door:** one-way` in the
+  pr skill's Merge Danger section). The door can only raise the risk: a
+  two-way door never makes a large or sensitive change low risk;
 - its branch lives in this repository (not a fork);
-- it is not a spec integration pull request (`FACTORY_AUTO_MERGE_INTEGRATION`).
+- it is not a spec integration pull request (`FACTORY_AUTO_MERGE_INTEGRATION`)
+  and not a locally built spec (`local/spec-*`, always high risk).
 
-Everything else is **high risk**. A `CHANGES_REQUESTED` review from a human
-fails the gate whatever the risk. The thresholds are plain constants with
+Everything else is **high risk**. A pull request also waits while the cloud
+agent is working on it (between its `copilot_work_started` and
+`copilot_work_finished` timeline events, or right after a fix request), and
+while a review thread blocks: human threads until resolved, Copilot threads
+until the code under them changes. Once Copilot has reviewed the new head, the
+gate resolves its outdated threads (the rulesets require resolved threads; the
+new review raises again what still applies). A `CHANGES_REQUESTED` review from a human
+fails the gate whatever the risk. A one-way door counts from the Merge Danger
+line or from a breaking (`type!:`) title. The thresholds are plain constants with
 tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 
 ## What is where
@@ -78,10 +99,13 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then runs dispatch |
 | Dispatch | `.github/workflows/dispatch.yml`, `.github/factory/dispatch.cjs` | Assigns the cloud agent, closes merged tickets, opens integration PRs |
 | Risk gate | `.github/workflows/risk-gate.yml`, `.github/factory/risk-gate.cjs` | Risk labels, `factory/risk-gate` status, automatic merge |
+| PR labels | risk gate, `.github/labeler.yml` + `.github/workflows/labeler.yml`, `.github/release.yml` | Type labels from the linked ticket (or its spec) and the Conventional Commits title (`bug`, `enhancement`, `documentation`, `refactor`, `tests`, `ci`, `dependencies`), `door:one-way` from Merge Danger or a `!` title, path labels (`documentation`, `tests`, `ci`, `dependencies`, `factory`); release notes are grouped by them |
 | Policy | `.github/factory/policy.cjs` (+ tests) | Pure rules shared by both scripts |
-| Spec check | `.github/workflows/spec-check.md` | Advisory PR comment: ticket and standards fit, `npm test` |
+| Code review | `.github/skills/code-review/SKILL.md` | Copilot code review: Standards and Spec axes, reads the ticket and its parent spec |
+| Review fix loop | `.github/factory/dispatch.cjs` (step 4) | `@copilot` addresses Copilot's comments, `FACTORY_MAX_FIX_ROUNDS` times, then `needs-human`; also `needs-human` when a round ends without a new commit |
 | CI | `.github/workflows/ci.yml` | `test` (app) and `factory` (policy tests) |
-| Implementer | `.github/agents/factory-implementer.agent.md` | Cloud agent prompt: parent spec, small PRs, screenshots, `Fixes #n` |
+| Implementer | `.github/agents/factory-implementer.agent.md` | Cloud agent: implement, tdd, code-review and pr skills, `Fixes #n` |
+| Environment | `scripts/bootstrap.sh`, `.devcontainer/devcontainer.json` | One setup for Codespaces, the cloud agent (`copilot-setup-steps.yml`) and CI |
 | Skills | `.github/skills/` | Matt Pocock's skills (MIT), see `.github/skills/README.md` |
 | Skill config | `docs/agents/*.md` | Issue tracker, label vocabulary, domain docs |
 | Rulesets | `docs/ruleset-main.json`, `docs/ruleset-factory.json` | Applied by the setup script |
@@ -106,6 +130,13 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
    merges). See "Security" below for why this is acceptable.
 5. In the Project's Workflows tab, turn on **Auto-add to project** for the
    repository; the built-in workflows then move items on close and merge.
+6. Settings > Copilot > Code review: set the review effort to **Adaptive**.
+   Open a test PR and check that the `[Spec]` comments quote the ticket; if
+   they do not, add the GitHub MCP server under Copilot > MCP servers so the
+   review can read issues (it is shared with the cloud agent).
+7. Settings > Codespaces: add a **prebuild** for the default branch with
+   `.devcontainer/devcontainer.json`, so review codespaces open in seconds, and
+   set an idle timeout and a machine-type limit in your codespaces policies.
 
 ### The agent token
 
@@ -122,6 +153,7 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
 | Variable | Default | Effect |
 |---|---|---|
 | `FACTORY_MAX_ACTIVE` | 3 | Tickets the cloud agent works on at once |
+| `FACTORY_MAX_FIX_ROUNDS` | 2 | Times the dispatcher asks `@copilot` to address a review before `needs-human` |
 | `FACTORY_REQUIRED_CHECKS` | `test` | Checks that must pass before an automatic merge |
 | `FACTORY_REQUIRE_COPILOT_REVIEW` | `true` | Wait for a Copilot review of the current head |
 | `FACTORY_AUTO_MERGE_DEFAULT_BRANCH` | `true` | Allow automatic merges into the default branch |
@@ -138,9 +170,28 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
   read the `## Spec` section, edit it if needed, then add `spec:approved`.
   Watch the sub-issues appear and get worked in dependency order on
   `factory/spec-N`; review the integration PR at the end.
-- **From the terminal:** open the cockpit canvas in Copilot CLI and run the
-  grilling locally; the result is posted to the issue (see
-  `.github/extensions/factory-cockpit/README.md`).
+- **Reviewing a risky PR:** the gate's comment has an **Open in Codespace**
+  badge. The codespace checks out the PR branch, starts the app on port 3000
+  and opens the preview, with the GitHub Pull Requests extension showing the
+  review threads next to the code. Approve from there or on github.com.
+- **From the terminal or a Codespace:** run `copilot` in the repository and
+  open the cockpit canvas to triage, grill locally (the result is posted to the
+  issue) and approve (see `.github/extensions/factory-cockpit/README.md`). In a
+  Codespace the Copilot CLI is preinstalled; run `/login` once, and
+  `gh auth login` if you need Project data (the codespace token is repository
+  scoped).
+- **Building a spec yourself:** on an approved spec, **Build here** in the
+  cockpit labels it `lane:local` (the dispatcher stops handing its tickets to
+  the cloud agent) and starts the `implement-spec` skill in your Copilot CLI
+  session: subagents build the tickets in parallel worktrees and merge them
+  into `local/spec-N` (outside the `factory/**` ruleset, so the session can
+  push; it starts from `factory/spec-N` when cloud tickets already landed
+  there, and merges it again before the PR is ready). The cockpit refuses
+  while the cloud agent still works on a ticket of the spec. The result is one
+  pull request into the default branch, always high risk, through the same
+  checks and Copilot review. Use it when a spec is tightly coupled or you want to pair with the
+  agent; the cloud lane stays the default because every ticket gets its own
+  run, PR, review and gate.
 - **Stuck?** `gh workflow run dispatch.yml` and
   `gh workflow run risk-gate.yml -f pr=<n>` re-run the sweeps; both are
   idempotent and also run on a schedule.
@@ -183,6 +234,14 @@ low-risk changes can merge without a human and high-risk ones cannot.
   (respectively maintain) access or from the factory's own workflows.
 
 ## Known limits
+
+- Copilot code review skills and MCP access are in public preview. The review
+  picks `.github/skills/code-review` because of its name; if a review shows
+  no `[Standards]` / `[Spec]` prefixes, it did not load the skill.
+- Every fix round is another cloud agent session and another review: they
+  bill as premium requests, hence the round cap.
+- `lane:local` only stops new assignments. Tickets the cloud agent already
+  started finish on their own.
 
 - Closing keywords only work on the default branch, so the dispatcher closes
   tickets merged into `factory/spec-*` itself: it starts from open tickets

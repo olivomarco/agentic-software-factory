@@ -5,10 +5,29 @@
 //   - classifies the change (policy.cjs) and sets `risk:low` / `risk:high`;
 //   - publishes the commit status `factory/risk-gate`: success when the risk
 //     is low or a human approved the current head, pending otherwise;
+//   - keeps one comment on high-risk PRs that need a human: the reasons and an
+//     "Open in Codespace" link to try the change;
 //   - asks Copilot to review the current head when it has not, and merges
-//     when the gate, the required checks and that review all pass and no
-//     review thread is open, then wakes the dispatcher.
-const { classifyRisk, isCopilotDone, humanApprovals, isSpecBranch } = require("./policy.cjs");
+//     when the gate, the required checks and that review all pass, the cloud
+//     agent is not working on the PR and no review thread blocks, then wakes
+//     the dispatcher (which also runs the review fix loop).
+const {
+  classifyRisk,
+  isCopilotDone,
+  humanApprovals,
+  isSpecBranch,
+  isLocalSpecBranch,
+  mergeDangerDoor,
+  closingRefs,
+  TYPE_LABELS,
+  ONE_WAY_LABEL,
+  describeLabels,
+  titleType,
+  copilotBusy,
+  isCopilotReviewerLogin,
+  blockingThreads,
+  parseFixRequest,
+} = require("./policy.cjs");
 
 const CONTEXT = "factory/risk-gate";
 // Records a `human-approved` label against the exact head it was added on.
@@ -16,6 +35,7 @@ const APPROVAL_CONTEXT = "factory/human-approval";
 const COPILOT_REVIEWER = "copilot-pull-request-reviewer[bot]";
 const isCopilotReview = (r) => r.user?.type === "Bot" && r.user.login === COPILOT_REVIEWER;
 const WRITE_ROLES = new Set(["admin", "maintain", "write"]);
+const STICKY = "<!-- factory:risk-gate -->";
 
 module.exports = async ({ github, context, core }) => {
   const { owner, repo } = context.repo;
@@ -26,7 +46,12 @@ module.exports = async ({ github, context, core }) => {
   const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
   const { data: repoInfo } = await github.rest.repos.get({ owner, repo });
 
+  const writeCache = new Map();
   async function canWrite(login) {
+    if (!writeCache.has(login)) writeCache.set(login, canWriteUncached(login));
+    return writeCache.get(login);
+  }
+  async function canWriteUncached(login) {
     const { data } = await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: login }).catch(() => ({ data: {} }));
     return WRITE_ROLES.has(data.role_name) || WRITE_ROLES.has(data.permission);
   }
@@ -85,10 +110,66 @@ module.exports = async ({ github, context, core }) => {
     return missing;
   }
 
-  async function openThreads(number) {
-    const q = `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}}}}}`;
+  // Blocking review threads. Once Copilot has reviewed the current head, its
+  // threads on code that has since changed are resolved here: the rulesets
+  // require every thread resolved, and the new review re-raises what still applies.
+  // reviewedSha is the head Copilot reviewed (or null); nothing is resolved if
+  // the pull request moved past it since, as that head is not reviewed yet.
+  async function openThreads(number, reviewedSha) {
+    const q = `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid reviewThreads(first:100){nodes{id isResolved isOutdated comments(first:1){nodes{author{login}}}}}}}}`;
     const r = await github.graphql(q, { owner, repo, number });
-    return r.repository.pullRequest.reviewThreads.nodes.filter((t) => !t.isResolved).length;
+    const { headRefOid } = r.repository.pullRequest;
+    const threads = r.repository.pullRequest.reviewThreads.nodes.map((t) => ({
+      id: t.id,
+      isResolved: t.isResolved,
+      isOutdated: t.isOutdated,
+      author: t.comments.nodes[0]?.author?.login,
+    }));
+    if (reviewedSha && reviewedSha === headRefOid) {
+      for (const t of threads.filter((t) => !t.isResolved && t.isOutdated && isCopilotReviewerLogin(t.author))) {
+        await github.graphql(`mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}`, { id: t.id });
+        t.isResolved = true;
+        core.info(`#${number}: resolved an outdated Copilot review thread`);
+      }
+    }
+    return blockingThreads(threads).length;
+  }
+
+  // Fix requests only count from writers (the dispatcher posts them with the
+  // agent token), so a drive-by comment cannot hold a merge back.
+  async function agentBusy(number, comments) {
+    const timeline = await github.paginate(github.rest.issues.listEventsForTimeline, { owner, repo, issue_number: number, per_page: 100 });
+    const requestedAt = [];
+    for (const c of comments) {
+      if (parseFixRequest(c.body) && c.user?.type === "User" && (await canWrite(c.user.login))) requestedAt.push(c.created_at);
+    }
+    return copilotBusy(timeline, { requestedAt });
+  }
+
+  // One comment per PR, edited in place, while a human is needed.
+  async function upsertSticky(number, comments, body, { create = true } = {}) {
+    const existing = comments.find((c) => c.user?.login === "github-actions[bot]" && c.body?.includes(STICKY));
+    const full = `${STICKY}\n${body}`;
+    if (existing?.body === full) return;
+    if (existing) await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: full });
+    else if (create) await github.rest.issues.createComment({ owner, repo, issue_number: number, body: full });
+  }
+
+  function humanNeededComment(pr, reasons) {
+    const codespace = `https://codespaces.new/${owner}/${repo}/pull/${pr.number}?quickstart=1`;
+    return [
+      "### 🧑‍⚖️ This pull request needs a human",
+      "",
+      "The risk gate will not merge it on its own because:",
+      "",
+      ...reasons.map((r) => `- ${r}`),
+      "",
+      `[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](${codespace})`,
+      "",
+      "The Codespace starts the app on this branch (port 3000) with Copilot CLI ready, so you can try the change before approving.",
+      "Approve with a pull request review, or add the `human-approved` label (it approves the current head only).",
+      `[Gate run](${runUrl})`,
+    ].join("\n");
   }
 
   async function setLabels(pr, risk) {
@@ -97,6 +178,36 @@ module.exports = async ({ github, context, core }) => {
     const names = pr.labels.map((l) => l.name);
     if (!names.includes(want)) await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: [want] });
     if (names.includes(drop)) await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: drop }).catch(() => {});
+  }
+
+  // Type labels of the issues a PR closes; a ticket without one inherits its
+  // parent spec's (triage labels the spec, to-tickets may not label tickets).
+  async function linkedTypeLabels(pr) {
+    const out = new Set();
+    const typeOf = (issue) => issue.labels.map((l) => (typeof l === "string" ? l : l.name)).filter((l) => TYPE_LABELS.includes(l));
+    for (const n of closingRefs(pr.body, `${owner}/${repo}`).slice(0, 10)) {
+      const issue = await github.rest.issues.get({ owner, repo, issue_number: n }).then((r) => r.data, () => null);
+      if (!issue || issue.pull_request) continue;
+      let types = typeOf(issue);
+      if (!types.length) {
+        const parent = await github.request("GET /repos/{owner}/{repo}/issues/{issue_number}/parent", { owner, repo, issue_number: n }).then((r) => r.data, () => null);
+        if (parent) types = typeOf(parent);
+      }
+      types.forEach((t) => out.add(t));
+    }
+    return [...out];
+  }
+
+  // Descriptive labels are only added (people may add more); door:one-way
+  // follows the body, so it goes when the change becomes a two-way door.
+  async function describe(pr) {
+    const names = pr.labels.map((l) => l.name);
+    const { add, oneWay } = describeLabels({ title: pr.title, body: pr.body, issueLabels: await linkedTypeLabels(pr) });
+    const missing = add.filter((l) => !names.includes(l));
+    if (missing.length) await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels: missing });
+    if (!oneWay && names.includes(ONE_WAY_LABEL)) {
+      await github.rest.issues.removeLabel({ owner, repo, issue_number: pr.number, name: ONE_WAY_LABEL }).catch(() => {});
+    }
   }
 
   async function evaluate(number) {
@@ -111,13 +222,22 @@ module.exports = async ({ github, context, core }) => {
     }
 
     await recordLabelApproval(number);
+    await describe(pr);
 
     const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 });
     const labels = pr.labels.map((l) => l.name);
-    let { risk, reasons, lines } = classifyRisk({ files, labels });
+    let { risk, reasons, lines } = classifyRisk({
+      files,
+      labels,
+      door: titleType(pr.title).breaking ? "one-way" : mergeDangerDoor(pr.body),
+    });
     if (isSpecBranch(pr.head.ref) && !autoMergeIntegration) {
       risk = "high";
       reasons = [`integration PR for ${pr.head.ref}`, ...reasons];
+    }
+    if (isLocalSpecBranch(pr.head.ref)) {
+      risk = "high";
+      reasons = [`spec built locally on ${pr.head.ref}`, ...reasons];
     }
     // Only branches in this repository (pushed by writers or the cloud agent)
     // can merge without a human.
@@ -161,10 +281,18 @@ module.exports = async ({ github, context, core }) => {
     log(`${state}: ${description}`);
     core.summary.addRaw(`- #${number} **${risk}** risk, \`${state}\`: ${description}\n`);
 
+    const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+    if (state === "pending" && !pr.draft) await upsertSticky(number, comments, humanNeededComment(pr, reasons));
+    else if (state === "success") {
+      const done = risk === "high" ? `### ✅ Approved by ${writers.join(", ")}` : "### ✅ Now low risk: no human needed";
+      await upsertSticky(number, comments, `${done}\n\n[Gate run](${runUrl})`, { create: false });
+    }
+
     if (state !== "success" || pr.draft) return;
     if (pr.base.ref === repoInfo.default_branch && !autoMergeDefault) return log("auto-merge into the default branch is off");
     if (!isSpecBranch(pr.base.ref) && pr.base.ref !== repoInfo.default_branch) return log(`base ${pr.base.ref} is not managed by the factory`);
 
+    if (await agentBusy(number, comments)) return log("the Copilot cloud agent is working on this pull request");
     const missing = await checksPassed(pr.head.sha);
     if (missing.length) return log(`waiting for checks: ${missing.join(", ")}`);
     const copilotReviewed = reviews.some((r) => isCopilotReview(r) && r.commit_id === pr.head.sha);
@@ -178,8 +306,15 @@ module.exports = async ({ github, context, core }) => {
       }
       return log("waiting for the Copilot code review of this head");
     }
-    const threads = await openThreads(number);
-    if (threads) return log(`${threads} unresolved review thread(s): a human or @copilot has to address them`);
+    const threads = await openThreads(number, copilotReviewed ? pr.head.sha : null);
+    if (threads) {
+      // The dispatcher holds the token @copilot answers to: wake its fix loop
+      // when a review lands (its own schedule catches the rest).
+      if (context.eventName === "pull_request_review") {
+        await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: "dispatch.yml", ref: repoInfo.default_branch });
+      }
+      return log(`${threads} blocking review thread(s): the dispatcher's fix loop handles Copilot's, a human resolves the rest`);
+    }
 
     try {
       await github.rest.pulls.merge({ owner, repo, pull_number: number, sha: pr.head.sha, merge_method: "squash" });

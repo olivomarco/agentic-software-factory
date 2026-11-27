@@ -14,7 +14,8 @@ Demo todo app used to exercise the SDLC factory workflow. Zero dependencies; Nod
 
 - Add or update tests alongside every behavior change (`*.test.js` next to the code).
 - Keep the project dependency-free unless a ticket requires otherwise.
-- Do not modify `.github/` in a feature or review change; workflow, agent and instruction changes need a separate human-reviewed PR (enforced by `CODEOWNERS`).
+- Do not modify `.github/`, `.devcontainer/` or `scripts/` in a feature or review change; workflow, agent, environment and instruction changes need a separate human-reviewed PR (enforced by `CODEOWNERS`).
+- Environment setup lives in `scripts/bootstrap.sh`, shared by the dev container (Codespaces), the cloud agent and CI.
 
 ## Agent skills
 
@@ -27,6 +28,14 @@ GitHub issues, with native sub-issues and blocked-by dependencies. See `docs/age
 ### Triage labels
 
 The five default roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) plus the factory's own labels. See `docs/agents/triage-labels.md`.
+
+### Implementing and reviewing
+
+The cloud agent builds one ticket with `implement` and `tdd` and writes the PR
+with `pr` (Summary, Evidence, Merge Danger with `**Door:** one-way|two-way`).
+`code-review` (adapted for Copilot code review) reviews every PR on two axes,
+`[Standards]` and `[Spec]`. `implement-spec` builds a whole approved spec from
+one local session. See `.github/skills/README.md`.
 
 ### Domain docs
 
