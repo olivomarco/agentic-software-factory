@@ -400,6 +400,39 @@ function biteVerdict(results) {
   return { ok: true, reason: `bites: ${results.filter((r) => r.base !== 0).map((r) => r.file).join(", ")}` };
 }
 
+// CI evidence (evidence.yml + evidence-publish.yml): screenshots of the base
+// branch ("before") and the pull request ("after") come from an untrusted run,
+// so the publisher accepts only these file names.
+const EVIDENCE_SHOT = /^(before|after)-[a-z0-9]+(?:-[a-z0-9]+){0,6}\.png$/;
+const EVIDENCE_MARKER = "<!-- factory:evidence -->";
+
+function isEvidenceShot(name) {
+  return typeof name === "string" && name.length <= 80 && EVIDENCE_SHOT.test(name);
+}
+
+// The pull request comment: one row per shot (viewport, scheme, page), before
+// and after side by side. url(name) gives an image's address.
+function evidenceComment({ names, url, sha, runUrl }) {
+  const rows = new Map();
+  for (const name of names.filter(isEvidenceShot).sort()) {
+    const [, side, key] = /^(before|after)-(.+)\.png$/.exec(name);
+    rows.set(key, { ...rows.get(key), [side]: name });
+  }
+  const cell = (name) => (name ? `<img src="${url(name)}" width="360">` : "_none_");
+  const lines = [
+    EVIDENCE_MARKER,
+    `### Screenshots from CI (${sha.slice(0, 7)})`,
+    "",
+    "Taken by the Evidence workflow from the base branch and from this pull request, with synthetic data. The agent did not make them.",
+    "",
+    "| Shot | Before (base) | After (this PR) |",
+    "|---|---|---|",
+    ...[...rows].map(([key, r]) => `| \`${key}\` | ${cell(r.before)} | ${cell(r.after)} |`),
+  ];
+  if (runUrl) lines.push("", `[Evidence run](${runUrl})`);
+  return lines.join("\n");
+}
+
 module.exports = {
   issueStage,
   PROJECT_FIELDS,
@@ -432,4 +465,7 @@ module.exports = {
   isTestFile,
   biteMode,
   biteVerdict,
+  EVIDENCE_MARKER,
+  isEvidenceShot,
+  evidenceComment,
   isSpecBranch, classifyRisk, closingRefs, isCopilotDone, isCopilotUnfinished, humanApprovals };
