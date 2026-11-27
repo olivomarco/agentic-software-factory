@@ -19,7 +19,13 @@ Demo todo app used to exercise the SDLC factory workflow. Zero dependencies; Nod
 
 ## Agent skills
 
-Skills in `.github/skills/` come from [mattpocock/skills](https://github.com/mattpocock/skills) (MIT).
+Skills in `.github/skills/` come from [mattpocock/skills](https://github.com/mattpocock/skills)
+and [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) (MIT).
+
+Before implementing code or addressing review feedback, load
+`.github/skills/ponytail/SKILL.md` in default `full` mode without a manual
+command or mode announcement. Use the smallest complete solution; repository
+testing, security, accessibility and PR evidence requirements still apply.
 
 ### Issue tracker
 
