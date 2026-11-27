@@ -33,6 +33,22 @@ function grillPrompt(repo, number) {
   ].join("\n");
 }
 
+// Architecture review: the improve-codebase-architecture skill, in this
+// session (its report and grilling need a human), either from scratch or from
+// the candidates the weekly architecture scout posted on an issue.
+function architecturePrompt(repo, number) {
+  const skills = join(repoRoot, ".github/skills");
+  return [
+    `Run an architecture review of ${repo} (checked out at ${repoRoot}) with the improve-codebase-architecture skill at ${skills}/improve-codebase-architecture/SKILL.md (read it, its HTML-REPORT.md, and the codebase-design, grilling and domain-modeling skills it calls, first).`,
+    number > 0
+      ? `Start from the candidates the architecture scout posted on issue #${number} (\`gh issue view ${number} --repo ${repo} --comments\`): check them against the current code, drop any that no longer hold, then write the HTML report and open it in the browser.`
+      : "Write the HTML report and open it in the browser.",
+    "Then ask me which candidate to explore, with the ask_user tool, and grill me through it one question at a time.",
+    `When we settle on a deepening, file it as an issue with \`gh issue create --repo ${repo} --label refactor --body-file -\`: the problem, the deepened module and its seam, what tests change, and a "## Grilling summary (local session)" with the decisions and their reasons${number > 0 ? `, linking back to #${number}` : ""}. Then ask me whether to comment /spec on it so the factory writes the spec.`,
+    "GLOSSARY.md and ADR changes the skill makes stay uncommitted: show me the diff and ask before committing or pushing anything.",
+  ].join("\n");
+}
+
 function buildPrompt(repo, number) {
   const skills = join(repoRoot, ".github/skills");
   return [
@@ -65,6 +81,10 @@ async function perform(entry, action, number) {
   if (action === "grill-local") {
     await session.send({ prompt: grillPrompt(entry.repo, number) });
     return `Grilling #${number} in the Copilot CLI chat`;
+  }
+  if (action === "architecture-local") {
+    await session.send({ prompt: architecturePrompt(entry.repo, number > 0 ? number : 0) });
+    return number > 0 ? `Architecture review of #${number} in the Copilot CLI chat` : "Architecture review in the Copilot CLI chat";
   }
   if (action === "build-local") {
     if (!(Number.isInteger(number) && number > 0)) throw new CanvasError("bad_input", "A spec number is required");

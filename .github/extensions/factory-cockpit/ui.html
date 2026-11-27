@@ -209,6 +209,7 @@
     </div>
     <div class="tools">
       <a id="project" class="icon-btn" target="_blank" rel="noopener" title="Project board" hidden></a>
+      <button id="architecture" class="icon-btn" title="Architecture review in this Copilot CLI session"></button>
       <button id="dispatch" class="icon-btn" title="Run the dispatcher now"></button>
       <button id="refresh" class="icon-btn" title="Refresh (r)"></button>
     </div>
@@ -251,6 +252,7 @@ const collapsed = new Set(["human"]);
 const ICON = {
   refresh: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z"/></svg>',
   play: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"/></svg>',
+  arch: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h4.5c.966 0 1.75.784 1.75 1.75v4.5A1.75 1.75 0 0 1 6.25 9h-4.5A1.75 1.75 0 0 1 0 7.25v-4.5C0 1.784.784 1 1.75 1Zm0 1.5a.25.25 0 0 0-.25.25v4.5c0 .138.112.25.25.25h4.5a.25.25 0 0 0 .25-.25v-4.5a.25.25 0 0 0-.25-.25ZM9.75 7h4.5c.966 0 1.75.784 1.75 1.75v4.5A1.75 1.75 0 0 1 14.25 15h-4.5A1.75 1.75 0 0 1 8 13.25v-4.5C8 7.784 8.784 7 9.75 7Zm0 1.5a.25.25 0 0 0-.25.25v4.5c0 .138.112.25.25.25h4.5a.25.25 0 0 0 .25-.25v-4.5a.25.25 0 0 0-.25-.25ZM10 2.75a.75.75 0 0 1 .75-.75h2.5A1.75 1.75 0 0 1 15 3.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75ZM1.75 10.5a.75.75 0 0 1 .75.75v1.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 1 12.75v-1.5a.75.75 0 0 1 .75-.75Z"/></svg>',
   board: '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25V1.75C0 .784.784 0 1.75 0ZM1.5 1.75v12.5c0 .138.112.25.25.25H4.5v-13H1.75a.25.25 0 0 0-.25.25ZM6 14.5h4v-13H6Zm5.5-13v13h2.75a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25Z"/></svg>',
   search: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 1 1-1.06 1.06l-3.04-3.04ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/></svg>',
   chev: '<svg class="chev" width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg>',
@@ -291,6 +293,9 @@ const ISSUE_ACTIONS = {
   human: [["ready-for-agent", "Hand to agent"]],
 };
 
+// The weekly architecture scout's report: candidates to pick from, not work.
+const ARCHITECTURE_ACTIONS = [["architecture-local", "Review here", "primary"], ["wontfix", "Won't fix", "danger"]];
+
 // Actions for an issue in the attention list, by why it is there.
 function attentionActions(i) {
   if (i.labels.includes("agent:failed")) return [["retry-agent", "Retry agent", "primary"], ["grill-local", "Grill here"], ["wontfix", "Won't fix", "danger"]];
@@ -301,7 +306,7 @@ function attentionActions(i) {
 const LABEL_COLORS = {
   "agent:failed": "#cf222e", "factory:failure": "#d93f0b",
   bug: "#d73a4a", enhancement: "#0ea5b7", documentation: "#0075ca", "possible-duplicate": "#d4a72c", refactor: "#8250df",
-  tests: "#57606a", ci: "#57606a", dependencies: "#0366d6", factory: "#6e40c9", "door:one-way": "#cf222e", "lane:local": "#8250df", "needs-human": "#cf222e",
+  tests: "#57606a", ci: "#57606a", dependencies: "#0366d6", factory: "#6e40c9", "door:one-way": "#cf222e", "lane:local": "#8250df", architecture: "#1d76db", "needs-human": "#cf222e",
 };
 const SHOWN_LABELS = Object.keys(LABEL_COLORS);
 
@@ -707,7 +712,7 @@ function renderQueue(main) {
       shown += items.length;
       const grid = el("div", { class: "grid" });
       if (!items.length) grid.append(el("div", { class: "empty", textContent: "Nothing here" }));
-      for (const i of items) grid.append(card(i, { color: s.c, meta: issueMeta(i), actions: ISSUE_ACTIONS[s.key] || [] }));
+      for (const i of items) grid.append(card(i, { color: s.c, meta: issueMeta(i), actions: i.labels.includes("architecture") ? ARCHITECTURE_ACTIONS : ISSUE_ACTIONS[s.key] || [] }));
       main.append(section(s.key, s.title, s.hint, s.c, items.length, grid));
     }
   }
@@ -888,12 +893,14 @@ function setTab(name) {
 
 $("#refresh").innerHTML = ICON.refresh;
 $("#dispatch").innerHTML = ICON.play;
+$("#architecture").innerHTML = ICON.arch;
 $("#project").innerHTML = ICON.board;
 $("#search-icon").innerHTML = ICON.search;
 $("#search-icon").style.display = "inline-flex";
 document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
 $("#refresh").onclick = load;
 $("#dispatch").onclick = (e) => act("dispatch", 0, e.currentTarget);
+$("#architecture").onclick = (e) => act("architecture-local", 0, e.currentTarget);
 $("#q-clear").innerHTML = ICON.close;
 $("#q-clear").onclick = () => setQuery("", { focus: true });
 document.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => setView(b.dataset.view)));

@@ -239,7 +239,7 @@ function isInfraFailure(run, jobs = []) {
 }
 
 // Labels any of which mean triage ran (or a human already decided).
-const TRIAGED_LABELS = ["bug", "enhancement", "documentation", "needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix", "spec", "spec:approved", "factory:failure"];
+const TRIAGED_LABELS = ["bug", "enhancement", "documentation", "needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix", "spec", "spec:approved", "factory:failure", "architecture"];
 
 // Should the sweep re-run triage on this issue? labels: names; createdAt and
 // triageLabelledAt: ISO strings (the latter when `triage` is on the issue).

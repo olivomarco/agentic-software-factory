@@ -59,6 +59,7 @@ create_label "ready-for-human"    1d76db "Needs human implementation"
 create_label "wontfix"            ffffff "Will not be actioned"
 create_label "possible-duplicate" cfd3d7 "Triage found a likely duplicate"
 create_label "triage"             5319e7 "Re-run triage on this issue"
+create_label "architecture"       1d76db "Architecture scout report: deepening candidates to review in the cockpit"
 # Spec and delivery
 create_label "spec"               c5def5 "The issue carries a spec (## Spec) waiting for approval"
 create_label "spec:approved"      0e8a16 "Human gate: break the spec into tickets"
