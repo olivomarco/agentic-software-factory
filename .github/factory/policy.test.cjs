@@ -8,6 +8,8 @@ const {
   closingRefs,
   isCopilotDone,
   ticketGate,
+  scorecard,
+  scorecardTable,
   biteMode,
   biteVerdict,
   isEvidenceShot,
@@ -268,4 +270,42 @@ test("CI evidence accepts only plain screenshot names and pairs before with afte
   // A page new in this pull request has no before.
   assert.match(body, /\| `desktop-dark-home` \| _none_ \| <img/);
   assert.ok(!body.includes("../x.png"));
+});
+
+test("the scorecard counts only the window and only the agent's PRs", () => {
+  const day = (d, h = 0) => `2026-11-${String(d).padStart(2, "0")}T${String(h).padStart(2, "0")}:00:00Z`;
+  const from = Date.parse(day(20));
+  const to = Date.parse(day(27));
+  const s = scorecard({
+    from,
+    to,
+    prs: [
+      { head_ref: "copilot/a", created_at: day(21), merged_at: day(21, 4), merged_by: "github-actions[bot]", labels: [] },
+      { head_ref: "copilot/b", created_at: day(22), merged_at: day(23), merged_by: "olivomarco", labels: ["risk:high"] },
+      { head_ref: "copilot/c", created_at: day(22), closed_at: day(24), labels: [] },
+      { head_ref: "copilot/d", created_at: day(10), merged_at: day(11), labels: [] },
+      { head_ref: "feature/x", created_at: day(21), merged_at: day(21, 1), labels: [] },
+    ],
+    comments: [
+      { body: "x <!-- factory:fix-request sha=1 round=1 -->", created_at: day(22) },
+      { body: "x <!-- factory:fix-request sha=1 round=1 -->", created_at: day(12) },
+    ],
+    runs: [
+      { path: "dynamic/copilot-swe-agent/copilot", conclusion: "success", created_at: day(21) },
+      { path: "dynamic/copilot-swe-agent/copilot", conclusion: "cancelled", created_at: day(22) },
+      { path: "dynamic/agents/copilot-pull-request-reviewer", conclusion: "success", created_at: day(22) },
+    ],
+    commits: [{ message: 'Revert "feat: x"', date: day(25) }],
+  });
+  assert.strictEqual(s.opened, 3);
+  assert.strictEqual(s.merged, 2);
+  assert.strictEqual(s.abandoned, 1);
+  assert.strictEqual(Math.round(s.successRate * 100), 67);
+  assert.strictEqual(s.autoMerged, 1);
+  assert.strictEqual(s.humanTouched, 1);
+  assert.strictEqual(s.fixRounds, 1);
+  assert.strictEqual(s.leadMedianHours, 24);
+  assert.deepStrictEqual([s.sessions, s.failedSessions, s.reviews, s.reverts], [2, 1, 1, 1]);
+  const table = scorecardTable(s, scorecard({ from: from - 7 * 864e5, to: from }));
+  assert.match(table, /\| Success rate \(merged \/ finished\) \| 67% \| – \|/);
 });

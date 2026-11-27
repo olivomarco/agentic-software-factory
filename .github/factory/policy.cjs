@@ -239,7 +239,7 @@ function isInfraFailure(run, jobs = []) {
 }
 
 // Labels any of which mean triage ran (or a human already decided).
-const TRIAGED_LABELS = ["bug", "enhancement", "documentation", "needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix", "spec", "spec:approved", "factory:failure", "architecture"];
+const TRIAGED_LABELS = ["bug", "enhancement", "documentation", "needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix", "spec", "spec:approved", "factory:failure", "architecture", "factory:scorecard"];
 
 // Should the sweep re-run triage on this issue? labels: names; createdAt and
 // triageLabelledAt: ISO strings (the latter when `triage` is on the issue).
@@ -433,6 +433,73 @@ function evidenceComment({ names, url, sha, runUrl }) {
   return lines.join("\n");
 }
 
+// Weekly scorecard (scorecard.yml): how the factory did in [from, to), from
+// plain GitHub data. prs: [{ head_ref, created_at, merged_at, closed_at,
+// merged_by, labels }]; comments: [{ body, created_at }] (repository issue
+// comments); runs: [{ path, conclusion, created_at }]; commits: [{ message, date }].
+const HUMAN_TOUCH_LABELS = ["needs-human", "human-approved", "risk:high"];
+const quantile = (xs, q) => {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.floor(q * s.length))];
+};
+
+function scorecard({ from, to, prs = [], comments = [], runs = [], commits = [] }) {
+  const inWindow = (t) => Boolean(t) && Date.parse(t) >= from && Date.parse(t) < to;
+  const agent = prs.filter((p) => /^copilot\//.test(p.head_ref || ""));
+  const merged = agent.filter((p) => inWindow(p.merged_at));
+  const abandoned = agent.filter((p) => !p.merged_at && inWindow(p.closed_at)).length;
+  const marked = (marker) => comments.filter((c) => inWindow(c.created_at) && (c.body || "").includes(marker)).length;
+  const runsAt = (prefix) => runs.filter((r) => inWindow(r.created_at) && (r.path || "").startsWith(prefix));
+  const sessions = runsAt("dynamic/copilot-swe-agent/");
+  const hours = merged.map((p) => (Date.parse(p.merged_at) - Date.parse(p.created_at)) / 3600000);
+  const touched = merged.filter((p) => (p.labels || []).some((l) => HUMAN_TOUCH_LABELS.includes(l))).length;
+  return {
+    opened: agent.filter((p) => inWindow(p.created_at)).length,
+    merged: merged.length,
+    abandoned,
+    successRate: merged.length + abandoned ? merged.length / (merged.length + abandoned) : null,
+    autoMerged: merged.filter((p) => p.merged_by === "github-actions[bot]").length,
+    humanTouched: touched,
+    fixRounds: marked("<!-- factory:fix-request"),
+    retries: marked(AGENT_RETRY_MARKER),
+    alerts: marked("<!-- factory:alert"),
+    leadMedianHours: quantile(hours, 0.5),
+    leadP90Hours: quantile(hours, 0.9),
+    sessions: sessions.length,
+    failedSessions: sessions.filter((r) => r.conclusion && !["success", "skipped"].includes(r.conclusion)).length,
+    reviews: runsAt("dynamic/agents/copilot-pull-request-reviewer").length,
+    reverts: commits.filter((c) => inWindow(c.date) && /^Revert\b/.test(c.message || "")).length,
+  };
+}
+
+const SCORECARD_ROWS = [
+  ["opened", "Agent PRs opened"],
+  ["merged", "Agent PRs merged"],
+  ["abandoned", "Agent PRs closed without merging"],
+  ["successRate", "Success rate (merged / finished)", "pct"],
+  ["autoMerged", "Merged by the factory (no human merge)"],
+  ["humanTouched", "Merged PRs a human had to handle (high risk, needs-human, approval)"],
+  ["fixRounds", "Review fix rounds requested"],
+  ["retries", "Agent session retries"],
+  ["alerts", "Alerts sent"],
+  ["leadMedianHours", "Lead time PR opened to merged, median", "h"],
+  ["leadP90Hours", "Lead time PR opened to merged, 90th percentile", "h"],
+  ["sessions", "Cloud agent sessions"],
+  ["failedSessions", "Cloud agent sessions that failed or were cancelled"],
+  ["reviews", "Copilot code reviews"],
+  ["reverts", "Reverts on the default branch"],
+];
+
+function scorecardTable(current, previous) {
+  const fmt = (v, kind) => (v === null || v === undefined ? "–" : kind === "pct" ? `${Math.round(v * 100)}%` : kind === "h" ? `${v.toFixed(1)} h` : String(v));
+  return [
+    "| Metric | Last 7 days | 7 days before |",
+    "|---|---:|---:|",
+    ...SCORECARD_ROWS.map(([key, name, kind]) => `| ${name} | ${fmt(current[key], kind)} | ${fmt(previous[key], kind)} |`),
+  ].join("\n");
+}
+
 module.exports = {
   issueStage,
   PROJECT_FIELDS,
@@ -462,6 +529,8 @@ module.exports = {
   specBranch,
   TICKETS_READY,
   ticketGate,
+  scorecard,
+  scorecardTable,
   isTestFile,
   biteMode,
   biteVerdict,

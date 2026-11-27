@@ -1,0 +1,29 @@
+name: Scorecard
+
+# Weekly factory metrics as an issue (.github/factory/scorecard.cjs): agent PRs
+# merged and abandoned, how many needed a human, fix rounds, retries, lead
+# time, agent sessions, reverts. Deterministic: no model.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  actions: read
+
+jobs:
+  scorecard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/factory
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const scorecard = require(`${process.env.GITHUB_WORKSPACE}/.github/factory/scorecard.cjs`);
+            await scorecard({ github, context, core });
