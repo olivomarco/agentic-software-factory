@@ -24,7 +24,8 @@ triage.md ........ category + state labels, agent brief or questions (triage ski
   |   /spec ........ ## Spec appended to the issue, label spec (to-spec skill) |
   |   HUMAN GATE: maintainer adds spec:approved                                |
   |   plan.md ...... sub-issues with blocked-by edges, ready-for-agent         |
-  |                  (to-tickets skill)                                        |
+  |                  (to-tickets skill), then tickets:ready on the spec        |
+  |                  no ticket starts before the whole breakdown exists        |
   v                                                                            v
 dispatch.yml ..... assigns unblocked tickets to the cloud agent (max 3 at a time)
                    base = factory/spec-N for spec tickets, else the default branch
@@ -96,7 +97,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 |---|---|---|
 | Triage | `.github/workflows/triage.md` | New issue (or label `triage`): triage skill, never adds `ready-for-agent` |
 | Spec | `.github/workflows/spec.md` | `/spec` comment: appends `## Spec`, labels `spec`, optional draft docs PR (glossary, ADR) |
-| Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then runs dispatch |
+| Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then labels the spec `tickets:ready`; dispatch runs when plan completes |
 | Dispatch | `.github/workflows/dispatch.yml`, `.github/factory/dispatch.cjs` | Assigns the cloud agent, closes merged tickets, opens integration PRs |
 | Risk gate | `.github/workflows/risk-gate.yml`, `.github/factory/risk-gate.cjs` | Risk labels, `factory/risk-gate` status, automatic merge |
 | PR labels | risk gate, `.github/labeler.yml` + `.github/workflows/labeler.yml`, `.github/release.yml` | Type labels from the linked ticket (or its spec) and the Conventional Commits title (`bug`, `enhancement`, `documentation`, `refactor`, `tests`, `ci`, `dependencies`), `door:one-way` from Merge Danger or a `!` title, path labels (`documentation`, `tests`, `ci`, `dependencies`, `factory`); release notes are grouped by them |
@@ -203,7 +204,8 @@ read/write works too.
   docs at hand, which an issue thread cannot give. When only the reporter
   knows the answers, triage asks them on the issue (`needs-info`). Comment `/spec`,
   read the `## Spec` section, edit it if needed, then add `spec:approved`.
-  Watch the sub-issues appear and get worked in dependency order on
+  Watch the sub-issues appear; once all are published the spec gets
+  `tickets:ready` and they are worked in dependency order on
   `factory/spec-N`; review the integration PR at the end.
 - **Reviewing a risky PR:** the gate's comment has an **Open in Codespace**
   badge. The codespace checks out the PR branch, starts the app on port 3000
@@ -241,6 +243,7 @@ hands the work to a human with a label; the cockpit gathers it all under
 |---|---|
 | Cloud agent session (no PR after 30 min, runs over 90 min, finishes with an error or leaves its PR titled `[WIP]`, PR closed unmerged) | The gate never merges a Copilot PR still titled `[WIP]`. The dispatcher cancels the agent's stuck run, if any (a hung session blocks new `@copilot` requests), then retries once: `@copilot` comment on the open PR, or unassign and re-assign. A second failure unassigns Copilot, swaps `status:in-progress` for `agent:failed` + `ready-for-human` and labels the PR `needs-human`. The slot and the tickets blocked by it are freed for a person. **Retry agent** in the cockpit re-adds `ready-for-agent`, which resets the retry budget |
 | CI (`startup_failure`, `timed_out`, or a failed job with no failed step) | The risk gate re-runs the failed jobs once (first attempt only). Real test failures are left to the fix loop |
+| Plan (a ticket could not be published, or the run failed) | The spec does not get `tickets:ready`, so none of its tickets start. Fix or delete the tickets, then add `tickets:ready` yourself to release them |
 | Triage | An issue without a triage label after 1 h gets `triage` re-added (one retry), then `factory:failure` and a comment. **Re-triage** in the cockpit tries again |
 | Any gh-aw workflow | gh-aw opens an `[aw] … failed` issue; the dispatcher labels it `factory:failure` |
 | The sweeps themselves | Each ticket, spec and PR is handled on its own: one error no longer stops the sweep, and the run fails at the end listing every error |
@@ -320,7 +323,11 @@ off for team repositories.
   `copilot-pull-request-reviewer[bot]` bot, and the gate asks for a new review
   whenever the current head has none.
 - `ready-for-agent` and `spec:approved` are honoured only from people with write
-  (respectively maintain) access or from the factory's own workflows.
+  (respectively maintain) access or from the factory's own workflows;
+  `tickets:ready` only from people with write access or from plan.
+- The order spec, then tickets, then code is enforced by the dispatcher: a
+  spec issue is never built itself, and a spec's tickets wait for
+  `spec:approved`, `tickets:ready` and the end of every plan run.
 
 ## Known limits
 

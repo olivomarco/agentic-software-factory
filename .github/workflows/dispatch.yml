@@ -9,9 +9,14 @@ name: Dispatch
 # Scheduled runs are best effort (GitHub delays or drops them under load), so
 # events and the cockpit's Dispatch button start the sweep too. Off-peak
 # minutes, since the top of the hour is when schedules are dropped most.
+# Tickets of a spec start only after the whole plan run has finished
+# (workflow_run), never from inside it: see ticketGate in policy.cjs.
 on:
   issues:
     types: [labeled, closed]
+  workflow_run:
+    workflows: ["Plan the approved spec"]
+    types: [completed]
   workflow_dispatch:
   schedule:
     - cron: "7,37 * * * *"
@@ -25,7 +30,7 @@ concurrency:
 
 jobs:
   dispatch:
-    if: github.event_name != 'issues' || github.event.action == 'closed' || github.event.label.name == 'ready-for-agent'
+    if: github.event_name != 'issues' || github.event.action == 'closed' || github.event.label.name == 'ready-for-agent' || github.event.label.name == 'tickets:ready'
     runs-on: ubuntu-latest
     # Holds GH_AW_AGENT_TOKEN; usable from the default branch only.
     environment: copilot-agent

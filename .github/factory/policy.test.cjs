@@ -7,6 +7,7 @@ const {
   classifyRisk,
   closingRefs,
   isCopilotDone,
+  ticketGate,
   humanApprovals,
   isSpecBranch,
   mergeDangerDoor,
@@ -215,4 +216,16 @@ test("a Copilot code review does not look like the agent working", () => {
   // A hung session still counts from the agent's own start, not the review's.
   const hung = [timeline[0], timeline[2]];
   assert.strictEqual(agentSession(hung).started, Date.parse("2026-01-01T10:00:00Z"));
+});
+
+test("tickets of a spec wait until plan has published them all", () => {
+  const spec = (...labels) => ({ labels: ["spec", ...labels] });
+  assert.strictEqual(ticketGate(["ready-for-agent", "spec:approved"], null), "spec");
+  assert.strictEqual(ticketGate(["ready-for-agent"], spec()), "spec-not-approved");
+  assert.strictEqual(ticketGate(["ready-for-agent"], spec("spec:approved")), "tickets-pending");
+  assert.strictEqual(ticketGate(["ready-for-agent"], { ...spec("spec:approved", "tickets:ready"), planning: true }), "tickets-pending");
+  assert.strictEqual(ticketGate(["ready-for-agent"], spec("spec:approved", "tickets:ready")), null);
+  // Outside a spec the direct ready-for-agent path stays open.
+  assert.strictEqual(ticketGate(["ready-for-agent"], null), null);
+  assert.strictEqual(ticketGate(["ready-for-agent"], { labels: ["enhancement"] }), null);
 });

@@ -23,6 +23,23 @@ function specBranch(specNumber) {
   return `${SPEC_BRANCH_PREFIX}${specNumber}`;
 }
 
+// plan adds TICKETS_READY to the spec after its last ticket exists, so no
+// ticket of a spec is built before the whole breakdown (and its blocked-by
+// edges) is in place.
+const TICKETS_READY = "tickets:ready";
+
+// Why a ready-for-agent issue must wait (null: it may be assigned). A spec is
+// never built itself; a ticket of a spec waits for approval and for plan to
+// finish. Issues outside a spec keep the direct ready-for-agent path.
+function ticketGate(issueLabels, parent) {
+  const isSpec = (labels) => labels.includes("spec") || labels.includes("spec:approved");
+  if (isSpec(issueLabels)) return "spec";
+  if (!parent || !isSpec(parent.labels)) return null;
+  if (!parent.labels.includes("spec:approved")) return "spec-not-approved";
+  if (!parent.labels.includes(TICKETS_READY) || parent.planning) return "tickets-pending";
+  return null;
+}
+
 function isSpecBranch(ref) {
   return typeof ref === "string" && ref.startsWith(SPEC_BRANCH_PREFIX);
 }
@@ -373,4 +390,6 @@ module.exports = {
   fixLoopAction,
   isLocalSpecBranch,
   specBranch,
+  TICKETS_READY,
+  ticketGate,
   isSpecBranch, classifyRisk, closingRefs, isCopilotDone, isCopilotUnfinished, humanApprovals };
