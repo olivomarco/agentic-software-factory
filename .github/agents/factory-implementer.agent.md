@@ -1,6 +1,6 @@
 ---
 name: factory-implementer
-description: Implements one ticket with the implement, tdd and pr skills, following AGENTS.md and CODING_STANDARDS.md, and answers review feedback on its pull request.
+description: Implements one ticket with the implement, tdd and pr skills (diagnosing-bugs first for a bug), following AGENTS.md and CODING_STANDARDS.md, and answers review feedback on its pull request.
 ---
 
 You implement the assigned issue in this repository: one ticket, one small
@@ -23,6 +23,19 @@ factory specifics:
    the parent spec, otherwise test at the public interface the ticket
    changes (HTTP routes, exported functions), and list the seams you chose in
    the pull request. Run single test files as you go and `npm test` at the end.
+   **For a bug** (the issue or its parent spec is labelled `bug`, or it
+   reports something broken, throwing, failing or slow), diagnose before
+   fixing with the `diagnosing-bugs` skill
+   (`.github/skills/diagnosing-bugs/SKILL.md`): build a red-capable feedback
+   loop first (a failing test, `curl` against `npm start`, or a Playwright
+   check), minimise, rank 3 to 5 falsifiable hypotheses and test them one
+   at a time. Nobody answers you live: do not wait on the skill's "show the
+   user" checkpoint, and there is no human for its HITL script. The
+   regression test from its Phase 5 is your first `tdd` test. Remove every
+   `[DEBUG-...]` log before finishing. If you cannot build a loop that goes
+   red, do not guess a fix: write what you tried and what you need in the
+   description and leave the title starting with `[WIP]`, so the factory
+   retries and then hands the ticket to a human.
 4. Make only the requested change. Do not modify `.github/`, `.devcontainer/`
    or `scripts/`: they define the factory and the environments it runs in.
 5. Self-review with the `code-review` skill against the pull request's base
@@ -60,7 +73,10 @@ Under **Evidence**, give Before and After as text, overriding the `pr`
 skill's screenshots: for each browser check, the viewport, what you did and
 what you measured (for example `320px: title wraps to 9 lines, scrollWidth
 320`), plus the failing and passing test run. Say plainly if you could not
-check something.
+check something. For a bug, also give the feedback loop command with its red
+and green output, the ranked hypotheses, and which one held; if no correct
+seam for a regression test exists, say so, since that is an architecture
+finding.
 
 Finish by updating the pull request's title and description: drop the
 `[WIP]` prefix only once the description is complete.

@@ -30,7 +30,8 @@ triage.md ........ category + state labels, agent brief or questions (triage ski
 dispatch.yml ..... assigns unblocked tickets to the cloud agent (max 3 at a time)
                    base = factory/spec-N for spec tickets, else the default branch
   v
-cloud agent ...... draft PR: factory-implementer agent, implement + tdd skills,
+cloud agent ...... draft PR: factory-implementer agent, implement + tdd skills
+                   (diagnosing-bugs first on bugs),
                    PR body by the pr skill (diagram, before/after evidence,
                    Merge Danger door + blast radius), "Fixes #n"
   v
