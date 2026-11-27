@@ -3,13 +3,28 @@ name: Dispatch
 # Hands unblocked ready-for-agent tickets to the Copilot cloud agent, opens
 # integration PRs for finished specs and runs the review fix loop on Copilot's
 # PRs. Deterministic: no model runs here.
-# Every trigger runs the same idempotent sweep (.github/factory/dispatch.cjs).
+# Every trigger runs the same idempotent sweep (.github/factory/dispatch.cjs),
+# which also recovers from failures: stuck or failed agent sessions are retried
+# once, then handed to a human; triage that never finished is re-run once.
+# Scheduled runs are best effort (GitHub delays or drops them under load), so
+# events start the sweep too: ticket labels and closes, a finished plan, a
+# finished cloud agent session, a merged pull request (the risk gate dispatches
+# it), the cockpit's Dispatch button and an external timer
+# (docs/external-timer.md). Off-peak minutes for the fallback schedule, since
+# the top of the hour is when schedules are dropped most.
+# Tickets of a spec start only after the whole plan run has finished
+# (workflow_run), never from inside it: see ticketGate in policy.cjs.
 on:
   issues:
     types: [labeled, closed]
+  workflow_run:
+    # "Copilot cloud agent" is the agent's dynamic workflow: when GitHub
+    # delivers its completion, the watchdog sees a failed session at once.
+    workflows: ["Plan the approved spec", "Copilot cloud agent"]
+    types: [completed]
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "7,37 * * * *"
 
 permissions:
   contents: read
@@ -20,7 +35,7 @@ concurrency:
 
 jobs:
   dispatch:
-    if: github.event_name != 'issues' || github.event.action == 'closed' || github.event.label.name == 'ready-for-agent'
+    if: github.event_name != 'issues' || github.event.action == 'closed' || github.event.label.name == 'ready-for-agent' || github.event.label.name == 'tickets:ready'
     runs-on: ubuntu-latest
     # Holds GH_AW_AGENT_TOKEN; usable from the default branch only.
     environment: copilot-agent
@@ -32,6 +47,11 @@ jobs:
         env:
           MAX_ACTIVE: ${{ vars.FACTORY_MAX_ACTIVE || '3' }}
           MAX_FIX_ROUNDS: ${{ vars.FACTORY_MAX_FIX_ROUNDS || '2' }}
+          MAX_AGENT_RETRIES: ${{ vars.FACTORY_MAX_AGENT_RETRIES || '1' }}
+          AGENT_NO_PR_MINUTES: ${{ vars.FACTORY_AGENT_NO_PR_MINUTES || '30' }}
+          AGENT_SESSION_MINUTES: ${{ vars.FACTORY_AGENT_SESSION_MINUTES || '90' }}
+          PAUSED: ${{ vars.FACTORY_PAUSED || 'false' }}
+          MAX_SESSIONS_PER_DAY: ${{ vars.FACTORY_MAX_SESSIONS_PER_DAY || '20' }}
         with:
           github-token: ${{ secrets.GH_AW_AGENT_TOKEN }}
           script: |

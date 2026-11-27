@@ -46,9 +46,10 @@ unattended run:
 - Do not interview anyone and do not stop to check the test seams with the
   user: write your proposed seams into "Testing Decisions" for the maintainer
   to review.
-- Synthesise from the issue body and all comments, including the grilling
-  rounds and the human's answers. If key decisions are clearly still open,
-  call `add_comment` listing them and recommending `/grill`, and stop.
+- Synthesise from the issue body and all comments, including the
+  `## Grilling summary` comments and the reporter's answers. If key decisions
+  are clearly still open, call `add_comment` listing them and recommending a
+  grilling session (cockpit "Grill here"), and stop.
 - Publish by calling `update_issue` with operation `append`: a
   `## Spec` heading followed by the spec template. Never remove the original
   text. Then `add_labels` with `spec`, and `remove_labels` for any of

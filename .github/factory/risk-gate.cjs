@@ -7,6 +7,9 @@
 //     is low or a human approved the current head, pending otherwise;
 //   - keeps one comment on high-risk PRs that need a human: the reasons and an
 //     "Open in Codespace" link to try the change;
+//   - re-runs the failed jobs of a CI run once when the failure looks like
+//     infrastructure (startup failure, timeout, a job lost without a failing
+//     step), not code;
 //   - asks Copilot to review the current head when it has not, and merges
 //     when the gate, the required checks and that review all pass, the cloud
 //     agent is not working on the PR and no review thread blocks, then wakes
@@ -14,6 +17,7 @@
 const {
   classifyRisk,
   isCopilotDone,
+  isCopilotUnfinished,
   humanApprovals,
   isSpecBranch,
   isLocalSpecBranch,
@@ -27,6 +31,7 @@ const {
   isCopilotReviewerLogin,
   blockingThreads,
   parseFixRequest,
+  isInfraFailure,
 } = require("./policy.cjs");
 
 const CONTEXT = "factory/risk-gate";
@@ -39,7 +44,7 @@ const STICKY = "<!-- factory:risk-gate -->";
 
 module.exports = async ({ github, context, core }) => {
   const { owner, repo } = context.repo;
-  const requiredChecks = (process.env.REQUIRED_CHECKS || "test").split(",").map((s) => s.trim()).filter(Boolean);
+  const requiredChecks = (process.env.REQUIRED_CHECKS || "test,tests-bite,analyze,dependency-review,CodeQL").split(",").map((s) => s.trim()).filter(Boolean);
   const requireCopilotReview = process.env.REQUIRE_COPILOT_REVIEW !== "false";
   const autoMergeDefault = process.env.AUTO_MERGE_DEFAULT_BRANCH !== "false";
   const autoMergeIntegration = process.env.AUTO_MERGE_INTEGRATION === "true";
@@ -267,7 +272,8 @@ module.exports = async ({ github, context, core }) => {
       description = `High risk, approved by ${writers.join(", ")}`;
     } else {
       state = "pending";
-      description = `High risk: needs human approval. ${reasons.join("; ")}`;
+      // Lead with the action: the checks box shows only the first ~140 characters.
+      description = `Needs a human: approve in a review or add human-approved. High risk: ${reasons.join("; ")}`;
     }
     await github.rest.repos.createCommitStatus({
       owner,
@@ -284,15 +290,22 @@ module.exports = async ({ github, context, core }) => {
     const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
     if (state === "pending" && !pr.draft) await upsertSticky(number, comments, humanNeededComment(pr, reasons));
     else if (state === "success") {
-      const done = risk === "high" ? `### ✅ Approved by ${writers.join(", ")}` : "### ✅ Now low risk: no human needed";
+      // Keep why it was high risk, so the edited comment still explains the hold.
+      const done = risk === "high"
+        ? [`### ✅ Approved by ${writers.join(", ")}`, "", "It needed a human because:", "", ...reasons.map((r) => `- ${r}`)].join("\n")
+        : "### ✅ Now low risk: no human needed";
       await upsertSticky(number, comments, `${done}\n\n[Gate run](${runUrl})`, { create: false });
     }
 
     if (state !== "success" || pr.draft) return;
+    if (process.env.PAUSED === "true") return log("factory paused (FACTORY_PAUSED): not merging");
     if (pr.base.ref === repoInfo.default_branch && !autoMergeDefault) return log("auto-merge into the default branch is off");
     if (!isSpecBranch(pr.base.ref) && pr.base.ref !== repoInfo.default_branch) return log(`base ${pr.base.ref} is not managed by the factory`);
 
     if (await agentBusy(number, comments)) return log("the Copilot cloud agent is working on this pull request");
+    // A session that died before its wrap-up leaves "[WIP]": the squash commit
+    // would carry it and the description is unfinished. The dispatcher retries.
+    if (isCopilotUnfinished(pr)) return log("the agent has not finished: the title still starts with [WIP]");
     const missing = await checksPassed(pr.head.sha);
     if (missing.length) return log(`waiting for checks: ${missing.join(", ")}`);
     const copilotReviewed = reviews.some((r) => isCopilotReview(r) && r.commit_id === pr.head.sha);
@@ -323,6 +336,28 @@ module.exports = async ({ github, context, core }) => {
     }
     log(`merged into ${pr.base.ref}`);
     await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: "dispatch.yml", ref: repoInfo.default_branch });
+  }
+
+  // First attempts only, so a real breakage is never retried in a loop.
+  async function rerunInfraFailure() {
+    const run = context.payload.workflow_run;
+    if (!run || run.conclusion === "success" || (run.run_attempt ?? 1) > 1) return;
+    const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { owner, repo, run_id: run.id, per_page: 100 });
+    if (!isInfraFailure(run, jobs)) return;
+    await github.rest.actions.reRunWorkflowFailedJobs({ owner, repo, run_id: run.id });
+    core.info(`${run.name} run ${run.id} failed (${run.conclusion}) without a failing step: re-running its failed jobs once`);
+    core.summary.addRaw(`- Re-ran the failed jobs of [${run.name} #${run.run_number}](${run.html_url}): infrastructure failure\n`);
+  }
+  await rerunInfraFailure().catch((e) => core.warning(`could not re-run the CI run: ${e.message}`));
+
+  // A merged pull request (by a human, or by this gate on an earlier run)
+  // frees the next tickets: start the dispatcher now rather than at its next
+  // schedule. It runs with the agent token, which pull_request_target into a
+  // factory/spec-* branch cannot reach, so it is dispatched on the default branch.
+  if (context.eventName === "pull_request_target" && context.payload.action === "closed") {
+    if (!context.payload.pull_request.merged) return;
+    await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: "dispatch.yml", ref: repoInfo.default_branch });
+    return core.info(`#${context.payload.pull_request.number} merged: dispatcher started`);
   }
 
   for (const n of await prNumbers()) await evaluate(n);

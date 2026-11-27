@@ -1,0 +1,34 @@
+name: Tests bite
+
+# The tests a pull request adds or changes must fail on the base branch and
+# pass on the pull request (.github/factory/tests-bite.cjs). A separate workflow
+# from CI because it also re-runs when the title (the change type) is edited.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-bite-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tests-bite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: bash scripts/bootstrap.sh
+      - run: node .github/factory/tests-bite.cjs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          TEST_CMD: ${{ vars.FACTORY_TEST_CMD || 'node --test' }}

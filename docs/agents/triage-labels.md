@@ -19,13 +19,16 @@ Factory labels (set by workflows or maintainers, never by the triage skill):
 | --- | --- | --- |
 | `spec` | `/spec` | The issue body holds a spec waiting for approval |
 | `spec:approved` | a maintainer | Human gate: break the spec into tickets and build it |
+| `tickets:ready` | plan | Every ticket of the spec is published; until then dispatch starts none of them |
 | `status:in-progress` | dispatch | The cloud agent is working on this ticket |
 | `possible-duplicate` | triage | Triage found a likely duplicate |
 | `risk:low` / `risk:high` | risk gate | Result of the merge risk policy on a PR |
 | `hold` | a maintainer | Force human review on a PR, whatever its risk |
 | `human-approved` | a maintainer | Human sign-off on a high-risk PR (counts as approval) |
 | `needs-human` | dispatch | The review fix loop gave up on a PR; a human resolves and approves |
+| `architecture` | architecture scout | Weekly report of deepening candidates; pick one in the cockpit, triage skips it |
 | `lane:local` | the cockpit's Build here | The spec is built locally with `implement-spec`; dispatch skips its tickets |
 
 Only a maintainer adds `ready-for-agent` to a standalone issue; the plan
-workflow adds it to tickets cut from an approved spec.
+workflow adds it to tickets cut from an approved spec, and those tickets start
+only once the spec has `tickets:ready`.

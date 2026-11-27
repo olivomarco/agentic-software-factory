@@ -1,33 +1,43 @@
 #!/usr/bin/env bash
 # Prepares a GitHub repository for the factory: labels, the copilot-agent
 # environment (holds the agent token, usable from the default branch only),
-# the branch rulesets for the default branch and factory/** and, optionally,
+# the branch rulesets for the default branch and factory/**, a push ruleset
+# keeping workflow files admin-only (organization repositories) and, optionally,
 # the agent token, CODEOWNERS owner and a Project board.
 # Safe to re-run (labels, rulesets and settings are updated in place).
 #
-# Usage: scripts/setup-repo.sh [--repo OWNER/REPO] [--owner @team] [--no-ruleset] [--project TITLE]
+# Usage: scripts/setup-repo.sh [--repo OWNER/REPO] [--owner @team] [--no-ruleset] [--admin-bypass] [--project TITLE]
 #   --repo        target repository (default: the current directory's remote)
 #   --owner       replace the placeholder owner in .github/CODEOWNERS (local edit, commit it yourself)
-#   --no-ruleset  skip the branch rulesets
-#   --project     create (or reuse) a user/org Project with this title and link it
-#                 (needs the 'project' scope: gh auth refresh -s project)
+#   --no-ruleset  skip the rulesets
+#   --admin-bypass let repository admins merge a pull request into the default
+#                 branch past its ruleset (pull requests only, never direct
+#                 pushes). For solo repositories, where the only code owner
+#                 cannot approve their own pull request. Re-run without it to remove.
+#   --project     create (or reuse) a user/org Project with this title, link it, give
+#                 it the factory's Status stages, Kind and Risk fields and views, and
+#                 backfill it (needs the 'project' scope: gh auth refresh -s project)
 # Environment:
 #   GH_AW_AGENT_TOKEN  if set, stored as a secret of the copilot-agent environment
 #                      (a token allowed to assign the Copilot cloud agent)
-# Needs: gh (logged in, admin on the repository), python3.
+#   FACTORY_PROJECT_TOKEN  if set, stored as a secret of the copilot-agent environment
+#                      (classic token with the project scope; project-sync.yml writes the board)
+# Needs: gh (logged in, admin on the repository), python3, node (for --project).
 set -euo pipefail
 
 repo=""
 owner=""
 ruleset=true
+admin_bypass=false
 project=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) repo="$2"; shift 2 ;;
     --owner) owner="$2"; shift 2 ;;
     --no-ruleset) ruleset=false; shift ;;
+    --admin-bypass) admin_bypass=true; shift ;;
     --project) project="$2"; shift 2 ;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -49,10 +59,16 @@ create_label "ready-for-human"    1d76db "Needs human implementation"
 create_label "wontfix"            ffffff "Will not be actioned"
 create_label "possible-duplicate" cfd3d7 "Triage found a likely duplicate"
 create_label "triage"             5319e7 "Re-run triage on this issue"
+create_label "architecture"       1d76db "Architecture scout report: deepening candidates to review in the cockpit"
 # Spec and delivery
 create_label "spec"               c5def5 "The issue carries a spec (## Spec) waiting for approval"
 create_label "spec:approved"      0e8a16 "Human gate: break the spec into tickets"
+create_label "tickets:ready"      0e8a16 "plan published every ticket of this spec: the dispatcher may start them"
 create_label "status:in-progress" fbca04 "The cloud agent is working on this"
+# Failure recovery
+create_label "agent:failed"       b60205 "The cloud agent failed or stalled, even after a retry: a human decides"
+create_label "factory:failure"    d93f0b "A factory workflow failed on this (gh-aw failure report, triage that never finished)"
+create_label "factory:scorecard"  5319e7 "Weekly factory scorecard (scorecard.yml)"
 create_label "documentation"      0075ca "Docs, glossary or ADR"
 # Risk gate
 # Describe pull requests (risk gate + actions/labeler, grouped by .github/release.yml)
@@ -77,6 +93,15 @@ echo "  squash merge on, delete head branches after merge"
 gh api -X PUT "repos/$repo/actions/permissions/workflow" \
   -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false >/dev/null
 echo "  default GITHUB_TOKEN permissions: read"
+# Free on public repositories; private ones need GitHub Secret Protection.
+if gh api -X PATCH "repos/$repo" --input - >/dev/null 2>&1 <<'JSON'
+{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}
+JSON
+then
+  echo "  secret scanning and push protection on"
+else
+  echo "  secret scanning not available here (needs GitHub Secret Protection on private repos)"
+fi
 
 if [ -n "$owner" ]; then
   echo "== CODEOWNERS"
@@ -114,8 +139,9 @@ fi
 if $ruleset; then
   echo "== Branch rulesets"
   err="$(mktemp)"
+  prepared="$(mktemp)"
   fallback="$(mktemp)"
-  trap 'rm -f "$err" "$fallback"' EXIT
+  trap 'rm -f "$err" "$prepared" "$fallback"' EXIT
   if ! all="$(gh api "repos/$repo/rulesets" --jq '.[] | "\(.id) \(.name)"' 2>"$err")"; then
     cat "$err" >&2
     echo "  Rulesets are unavailable for $repo (private repo on a free plan, or no admin rights)." >&2
@@ -133,26 +159,60 @@ if $ruleset; then
         gh api -X POST "repos/$repo/rulesets" --input "$1" >/dev/null
       fi
     }
-    if apply "$file" 2>"$err"; then
-      echo "  '$name' applied"
+    # Admins (role id 5) may bypass the default branch's ruleset through a pull
+    # request only; every other ruleset, and every run without the flag, has none.
+    python3 - "$file" "$prepared" "$admin_bypass" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+main = "~DEFAULT_BRANCH" in d["conditions"]["ref_name"]["include"]
+d["bypass_actors"] = (
+    [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "pull_request"}]
+    if sys.argv[3] == "true" and main
+    else []
+)
+json.dump(d, open(sys.argv[2], "w"))
+PY
+    if apply "$prepared" 2>"$err"; then
+      $admin_bypass && [ "$file" = "$root/docs/ruleset-main.json" ] && bypass_note=" (admins may bypass via pull request)" || bypass_note=""
+      echo "  '$name' applied$bypass_note"
       continue
     fi
     # The copilot_code_review rule is not available on every plan.
-    python3 - "$file" "$fallback" <<'PY'
+    python3 - "$prepared" "$fallback" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
-d["rules"] = [r for r in d["rules"] if r["type"] != "copilot_code_review"]
+d["rules"] = [r for r in d["rules"] if r["type"] not in ("copilot_code_review", "code_scanning")]
 json.dump(d, open(sys.argv[2], "w"))
 PY
     if apply "$fallback" 2>>"$err"; then
-      echo "  '$name' applied WITHOUT copilot_code_review (not accepted here)."
-      echo "  Enable automatic Copilot code review in the repository settings."
+      echo "  '$name' applied WITHOUT copilot_code_review and code_scanning (not accepted here)."
+      echo "  Enable automatic Copilot code review in the repository settings; CodeQL"
+      echo "  still runs and the risk gate still waits for its check."
     else
       cat "$err" >&2
       echo "  Could not apply '$name'. You need admin rights on $repo." >&2
       exit 1
     fi
   done
+
+  # Only admins may push changes to workflow files, so a workflow run on the
+  # agent's branch is always the default branch's definition. GitHub accepts
+  # push rulesets on organization-owned repositories only.
+  file="$root/docs/ruleset-workflows.json"
+  name="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["name"])' "$file")"
+  existing="$(printf '%s\n' "$all" | while read -r id n; do [ "$n" = "$name" ] && echo "$id"; done || true)"
+  if [ -n "$existing" ]; then
+    gh api -X PUT "repos/$repo/rulesets/$existing" --input "$file" >/dev/null 2>"$err" && ok=true || ok=false
+  else
+    gh api -X POST "repos/$repo/rulesets" --input "$file" >/dev/null 2>"$err" && ok=true || ok=false
+  fi
+  if $ok; then
+    echo "  '$name' applied: you can turn off Copilot's 'Require approval for workflow runs'"
+  else
+    echo "  '$name' not applied (push rulesets need an organization-owned repository):"
+    sed 's/^/    /' "$err"
+    echo "  Keep Copilot's 'Require approval for workflow runs' ON (see docs/factory.md, Security)."
+  fi
 fi
 
 if [ -n "$project" ]; then
@@ -164,19 +224,41 @@ if [ -n "$project" ]; then
     echo "  created '$project' (#$number)"
   fi
   gh project link "$number" --owner "$powner" --repo "$repo" >/dev/null 2>&1 || true
-  gh variable set FACTORY_PROJECT_URL --repo "$repo" \
-    --body "$(gh project view "$number" --owner "$powner" --format json --jq .url)" >/dev/null
+  project_url="$(gh project view "$number" --owner "$powner" --format json --jq .url)"
+  gh variable set FACTORY_PROJECT_URL --repo "$repo" --body "$project_url" >/dev/null
   echo "  '$project' (#$number) linked; URL stored in the FACTORY_PROJECT_URL variable"
-  echo "  In the project's Workflows tab, turn on 'Auto-add to project' for this repository."
+  # New projects are private: give the board the repository's visibility.
+  visibility="$(gh repo view "$repo" --json visibility --jq .visibility)"
+  [ "$visibility" = PUBLIC ] || visibility=PRIVATE
+  gh project edit "$number" --owner "$powner" --visibility "$visibility" >/dev/null
+  echo "  board visibility: $visibility (same as the repository)"
+  node "$root/scripts/setup-project.cjs" "$powner" "$number"
+  if [ -n "${FACTORY_PROJECT_TOKEN:-}" ]; then
+    gh secret set FACTORY_PROJECT_TOKEN --repo "$repo" --env "$env_name" --body "$FACTORY_PROJECT_TOKEN" >/dev/null
+    echo "  FACTORY_PROJECT_TOKEN stored in $env_name"
+  fi
+  if ! gh secret list --repo "$repo" --env "$env_name" --json name --jq '.[].name' | grep -qx FACTORY_PROJECT_TOKEN; then
+    echo "  FACTORY_PROJECT_TOKEN missing: the board stays as it is until you create a classic"
+    echo "  token with the 'project' scope ('repo' too for a private repository) and run"
+    echo "    gh secret set FACTORY_PROJECT_TOKEN --repo $repo --env $env_name"
+  elif gh workflow run project-sync.yml --repo "$repo" -f backfill=true >/dev/null 2>&1; then
+    echo "  backfill started (Project sync workflow)"
+  else
+    echo "  run 'gh workflow run project-sync.yml --repo $repo -f backfill=true' once the workflow is on the default branch"
+  fi
 fi
 
 cat <<EOF
 
 Still manual:
-  - Enable the Copilot cloud agent and decide on "Require approval for workflow runs":
+${project_url:+  - Project default repository (no API for it): $project_url/settings: set the
+    Default repository to $repo, so issues created on the board land there.
+}  - Enable the Copilot cloud agent and decide on "Require approval for workflow runs":
     https://github.com/$repo/settings/copilot
-    Turning it off lets Copilot's PR checks start automatically; the agent token stays
-    out of reach because only $default_branch can use the $env_name environment.
+    Turn it off only where the 'workflows: admins only' push ruleset applied above
+    (organization repositories): otherwise an agent branch could edit a workflow and
+    run it with write access. The agent token is out of reach either way: only
+    $default_branch can use the $env_name environment.
   - Push the compiled workflows (.github/workflows/*.lock.yml) to the default branch.
   - Copilot code review (https://github.com/$repo/settings/copilot): review effort
     "Adaptive". It reads .github/skills/code-review; open a test PR and check its
@@ -188,5 +270,6 @@ Still manual:
   - Replace the placeholder owner in .github/CODEOWNERS if you did not pass --owner.
   - Optional repository variables (Settings > Secrets and variables > Actions > Variables):
     FACTORY_MAX_ACTIVE (3), FACTORY_MAX_FIX_ROUNDS (2), FACTORY_REQUIRE_COPILOT_REVIEW (true),
-    FACTORY_AUTO_MERGE_DEFAULT_BRANCH (true), FACTORY_AUTO_MERGE_INTEGRATION (false).
+    FACTORY_AUTO_MERGE_DEFAULT_BRANCH (true), FACTORY_AUTO_MERGE_INTEGRATION (false),
+    FACTORY_MAX_AGENT_RETRIES (1), FACTORY_AGENT_NO_PR_MINUTES (30), FACTORY_AGENT_SESSION_MINUTES (90).
 EOF

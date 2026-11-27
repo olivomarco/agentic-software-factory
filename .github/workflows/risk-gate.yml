@@ -5,19 +5,21 @@ name: Risk gate
 # The script always comes from the default branch, never from the PR.
 on:
   pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review, edited, labeled, unlabeled]
+    types: [opened, reopened, synchronize, ready_for_review, edited, labeled, unlabeled, closed]
   pull_request_review:
     types: [submitted, dismissed]
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, Tests bite, CodeQL, Dependency review]
     types: [completed]
   workflow_dispatch:
     inputs:
       pr:
         description: Pull request number (empty = all open PRs)
         required: false
+  # Also started by the external timer (docs/external-timer.md); the schedule
+  # stays as a fallback, since GitHub delays or drops scheduled runs under load.
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "4,19,34,49 * * * *"
 
 permissions:
   contents: write
@@ -43,10 +45,11 @@ jobs:
       - uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ inputs.pr }}
-          REQUIRED_CHECKS: ${{ vars.FACTORY_REQUIRED_CHECKS || 'test' }}
+          REQUIRED_CHECKS: ${{ vars.FACTORY_REQUIRED_CHECKS || 'test,tests-bite,analyze,dependency-review,CodeQL' }}
           REQUIRE_COPILOT_REVIEW: ${{ vars.FACTORY_REQUIRE_COPILOT_REVIEW || 'true' }}
           AUTO_MERGE_DEFAULT_BRANCH: ${{ vars.FACTORY_AUTO_MERGE_DEFAULT_BRANCH || 'true' }}
           AUTO_MERGE_INTEGRATION: ${{ vars.FACTORY_AUTO_MERGE_INTEGRATION || 'false' }}
+          PAUSED: ${{ vars.FACTORY_PAUSED || 'false' }}
         with:
           script: |
             const gate = require(`${process.env.GITHUB_WORKSPACE}/.github/factory/risk-gate.cjs`);

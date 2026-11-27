@@ -8,8 +8,9 @@ at **risky** changes; they no longer review every diff.
 Everything runs on GitHub primitives: gh-aw agentic workflows, native
 sub-issues and blocked-by dependencies, the Copilot cloud agent, Copilot code
 review (with a repository skill), rulesets, environments, Codespaces and a
-Project board. Two deterministic
-workflows (`dispatch.yml`, `risk-gate.yml`) do the bookkeeping without a model.
+Project board. Three deterministic
+workflows (`dispatch.yml`, `risk-gate.yml`, `project-sync.yml`) do the
+bookkeeping without a model.
 
 ```text
 issue opened
@@ -19,16 +20,18 @@ triage.md ........ category + state labels, agent brief or questions (triage ski
   |-- small and clear -> maintainer adds ready-for-agent ----------------------.
   |                                                                            |
   |-- big or vague:                                                            |
-  |   /grill ....... one interview round per comment (grill-with-docs skill)   |
+  |   grill ........ cockpit "Grill here": live interview (grill-with-docs)    |
   |   /spec ........ ## Spec appended to the issue, label spec (to-spec skill) |
   |   HUMAN GATE: maintainer adds spec:approved                                |
   |   plan.md ...... sub-issues with blocked-by edges, ready-for-agent         |
-  |                  (to-tickets skill)                                        |
+  |                  (to-tickets skill), then tickets:ready on the spec        |
+  |                  no ticket starts before the whole breakdown exists        |
   v                                                                            v
 dispatch.yml ..... assigns unblocked tickets to the cloud agent (max 3 at a time)
                    base = factory/spec-N for spec tickets, else the default branch
   v
-cloud agent ...... draft PR: factory-implementer agent, implement + tdd skills,
+cloud agent ...... draft PR: factory-implementer agent, implement + tdd skills
+                   (diagnosing-bugs first on bugs),
                    PR body by the pr skill (diagram, before/after evidence,
                    Merge Danger door + blast radius), "Fixes #n"
   v
@@ -94,22 +97,31 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Piece | File | Role |
 |---|---|---|
 | Triage | `.github/workflows/triage.md` | New issue (or label `triage`): triage skill, never adds `ready-for-agent` |
-| Grill | `.github/workflows/grill.md` | `/grill` comment: one round of questions, with recommended answers |
 | Spec | `.github/workflows/spec.md` | `/spec` comment: appends `## Spec`, labels `spec`, optional draft docs PR (glossary, ADR) |
-| Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then runs dispatch |
+| Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then labels the spec `tickets:ready`; dispatch runs when plan completes |
+| Architecture scout | `.github/workflows/architecture-scout.md` | Weekly (or on demand): improve-codebase-architecture steps 1-2 on recent hot spots, posts up to 4 deepening candidates as one `[architecture]` issue (older ones closed). Proposes only; a human picks one with **Review here** in the cockpit |
+| Scorecard | `.github/workflows/scorecard.yml`, `.github/factory/scorecard.cjs` | Weekly (Monday 06:17 UTC, or on demand): a `[factory] Scorecard` issue comparing the last 7 days with the 7 before — agent PRs merged and abandoned, success rate, merged by the factory vs handled by a human, fix rounds, retries, alerts, lead time, agent sessions, Copilot reviews, reverts. GitHub data only, no model; the previous scorecard is closed |
 | Dispatch | `.github/workflows/dispatch.yml`, `.github/factory/dispatch.cjs` | Assigns the cloud agent, closes merged tickets, opens integration PRs |
 | Risk gate | `.github/workflows/risk-gate.yml`, `.github/factory/risk-gate.cjs` | Risk labels, `factory/risk-gate` status, automatic merge |
 | PR labels | risk gate, `.github/labeler.yml` + `.github/workflows/labeler.yml`, `.github/release.yml` | Type labels from the linked ticket (or its spec) and the Conventional Commits title (`bug`, `enhancement`, `documentation`, `refactor`, `tests`, `ci`, `dependencies`), `door:one-way` from Merge Danger or a `!` title, path labels (`documentation`, `tests`, `ci`, `dependencies`, `factory`); release notes are grouped by them |
+| External timer | `scripts/factory-tick.sh`, `docs/external-timer.md` (+ Logic App definition) | Starts the dispatcher and gate sweeps every 10 minutes from a scheduler you trust; GitHub's own schedules stay as a fallback |
+| Alerts | `.github/workflows/alerts.yml`, `.github/factory/alerts.cjs` | @-mentions `FACTORY_OWNERS` on items labelled `agent:failed`, `factory:failure` or `needs-human` (once per time the label is added); opens and closes `[factory] … is failing` and `[factory] Agent session cap reached` issues; optional webhook |
+| Kill switch | `scripts/factory-pause.sh`, `vars.FACTORY_PAUSED` | `on`: no new agent sessions, fix rounds, triage re-runs or automatic merges; `--hard` also disables the factory workflows; `off` resumes |
 | Policy | `.github/factory/policy.cjs` (+ tests) | Pure rules shared by both scripts |
 | Code review | `.github/skills/code-review/SKILL.md` | Copilot code review: Standards and Spec axes, reads the ticket and its parent spec |
 | Review fix loop | `.github/factory/dispatch.cjs` (step 4) | `@copilot` addresses Copilot's comments, `FACTORY_MAX_FIX_ROUNDS` times, then `needs-human`; also `needs-human` when a round ends without a new commit |
 | CI | `.github/workflows/ci.yml` | `test` (app) and `factory` (policy tests) |
+| Tests bite | `.github/workflows/tests-bite.yml`, `.github/factory/tests-bite.cjs` | `tests-bite` check: the test files a PR adds or changes must fail on the base branch and pass on the PR. Source changes without a test fail (`.github/`, `scripts/`, `docs/`, `samples/` and Markdown are not source); `docs`/`refactor`/`test`/`ci`/`build` titles, PRs without source changes and integration PRs skip |
+| CodeQL | `.github/workflows/codeql.yml` | `analyze` check: CodeQL `security-extended` on the app (JavaScript/TypeScript) and on the factory's own workflows (`actions`), on every PR, on pushes to `main` and `factory/**`, and weekly. GitHub turns the results into a `CodeQL` check on the PR; the `code_scanning` ruleset rule blocks merging new high/critical security alerts or errors |
+| Dependency review | `.github/workflows/dependency-review.yml` | `dependency-review` check: fails a PR that adds a dependency with a known high or critical vulnerability |
+| Evidence | `.github/workflows/evidence.yml` + `evidence-publish.yml`, `.github/factory/evidence*.cjs` | For PRs touching `frontend/` or `backend/`: Playwright screenshots of the base branch and the PR (phone and desktop, light and dark), stored on the `factory-evidence` branch and posted as one Before/After comment. Taken by CI, not by the agent |
 | Implementer | `.github/agents/factory-implementer.agent.md` | Cloud agent: implement, tdd, code-review and pr skills, `Fixes #n` |
 | Environment | `scripts/bootstrap.sh`, `.devcontainer/devcontainer.json` | One setup for Codespaces, the cloud agent (`copilot-setup-steps.yml`) and CI |
 | Skills | `.github/skills/` | Matt Pocock's skills (MIT), see `.github/skills/README.md` |
 | Skill config | `docs/agents/*.md` | Issue tracker, label vocabulary, domain docs |
 | Rulesets | `docs/ruleset-main.json`, `docs/ruleset-factory.json` | Applied by the setup script |
-| Cockpit | `.github/extensions/factory-cockpit/` | Copilot CLI canvas: queue, grilling, specs, tickets, PR risk |
+| Cockpit | `.github/extensions/factory-cockpit/` | Copilot CLI canvas: queue, grilling, specs, tickets, PR risk; filters open and recently closed work |
+| Project board | `.github/workflows/project-sync.yml`, `.github/factory/project-sync.cjs`, `scripts/setup-project.cjs` | Every issue and PR on the board, Status = factory stage (same rule as the cockpit), Kind, Risk |
 
 ## Setup
 
@@ -119,22 +131,24 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 
    ```bash
    gh auth refresh -s project   # only for --project
-   GH_AW_AGENT_TOKEN=<token> scripts/setup-repo.sh --owner @you --project "Software factory"
+   GH_AW_AGENT_TOKEN=<token> FACTORY_PROJECT_TOKEN=<classic token> \
+     scripts/setup-repo.sh --owner @you --project "Software factory"
    ```
 
    It creates the labels, enables squash merge and branch deletion, creates the
-   `copilot-agent` environment (default branch only) with the token, applies
-   both rulesets and creates and links the Project board.
-4. Settings > Copilot: enable the cloud agent and turn off **Require approval
-   for workflow runs** (otherwise CI never runs on the agent's PRs and nothing
-   merges). See "Security" below for why this is acceptable.
-5. In the Project's Workflows tab, turn on **Auto-add to project** for the
-   repository; the built-in workflows then move items on close and merge.
-6. Settings > Copilot > Code review: set the review effort to **Adaptive**.
+   `copilot-agent` environment (default branch only) with both tokens, applies
+   the rulesets and creates, links and shapes the Project board (see "The
+   Project board" below).
+4. Settings > Copilot: enable the cloud agent. Turn off **Require approval for
+   workflow runs** only if the script applied the `workflows: admins only` push
+   ruleset (organization repositories). Otherwise leave it on and click
+   **Approve and run workflows** on each agent push, after a look at the diff;
+   until you do, CI does not run and nothing merges. See "Security" below.
+5. Settings > Copilot > Code review: set the review effort to **Adaptive**.
    Open a test PR and check that the `[Spec]` comments quote the ticket; if
    they do not, add the GitHub MCP server under Copilot > MCP servers so the
    review can read issues (it is shared with the cloud agent).
-7. Settings > Codespaces: add a **prebuild** for the default branch with
+6. Settings > Codespaces: add a **prebuild** for the default branch with
    `.devcontainer/devcontainer.json`, so review codespaces open in seconds, and
    set an idle timeout and a machine-type limit in your codespaces policies.
 
@@ -148,16 +162,54 @@ assign Copilot, create `factory/spec-*` branches and open integration PRs (so
 CI runs on them; events caused by `GITHUB_TOKEN` start no workflows). The
 gh-aw workflows themselves bill through `copilot-requests: write`.
 
+### The Project board
+
+`--project` gives the board the factory's shape (from `PROJECT_FIELDS` in
+`policy.cjs`, applied by `scripts/setup-project.cjs`):
+
+- **Status** options become the stages: Needs attention, Triage, Needs info,
+  Spec, Spec approved, Ready for agent, In progress, In review, Needs human,
+  Done, Won't fix. They follow the same rule as the cockpit's queue.
+- **Kind** (Spec, Ticket, Bug, Enhancement, Pull request, Report, Other) and
+  **Risk** (Low, High, from the risk gate's labels).
+- Views: **Factory** (board by Status), **Needs a human**, **Specs** (with
+  parent issue and sub-issue progress) and **Pull requests**.
+- The board gets the repository's visibility (new projects start private)
+  and is linked to it. Its **default repository**, where issues created on
+  the board go, has no API: set it once under the project's Settings.
+
+`project-sync.yml` keeps it current: it adds every issue and pull request and
+sets the three fields from labels and state, after every issue event, after
+each factory workflow finishes, and hourly. It only writes what changed. Run
+`gh workflow run project-sync.yml -f backfill=true` to take the whole history.
+The project's built-in workflows (auto-add, item closed) are not needed; leave
+them off so they do not fight the sync over Status.
+
+The sync needs `FACTORY_PROJECT_TOKEN` in the `copilot-agent` environment: a
+**classic** token with the `project` scope (add `repo` for a private
+repository). Fine-grained tokens and GitHub Apps cannot write user-owned
+projects; for an organization project, a GitHub App token with Projects
+read/write works too.
+
 ### Tunables (repository variables)
 
 | Variable | Default | Effect |
 |---|---|---|
 | `FACTORY_MAX_ACTIVE` | 3 | Tickets the cloud agent works on at once |
+| `FACTORY_PAUSED` | unset | `true` pauses the factory (see Kill switch); set it with `scripts/factory-pause.sh` |
+| `FACTORY_MAX_SESSIONS_PER_DAY` | 20 | Cloud agent sessions (assignments, retries, fix rounds, any other) that may start in 24 hours; `0` = no cap |
+| `FACTORY_OWNERS` | the repository owner (personal repos) | Users or `@org/team` the alerts @-mention, comma-separated |
 | `FACTORY_MAX_FIX_ROUNDS` | 2 | Times the dispatcher asks `@copilot` to address a review before `needs-human` |
-| `FACTORY_REQUIRED_CHECKS` | `test` | Checks that must pass before an automatic merge |
+| `FACTORY_REQUIRED_CHECKS` | `test,tests-bite,analyze,dependency-review,CodeQL` | Checks that must pass before an automatic merge |
+| `FACTORY_START_CMD` | `npm start` | Command the Evidence workflow starts the app with (it sets `PORT`) |
+| `FACTORY_EVIDENCE_PATHS` | `/` | Comma-separated pages the Evidence workflow captures |
+| `FACTORY_TEST_CMD` | `node --test` | Command `tests-bite` runs with one test file appended (for example `npx jest` or `npx vitest run`) |
 | `FACTORY_REQUIRE_COPILOT_REVIEW` | `true` | Wait for a Copilot review of the current head |
 | `FACTORY_AUTO_MERGE_DEFAULT_BRANCH` | `true` | Allow automatic merges into the default branch |
 | `FACTORY_AUTO_MERGE_INTEGRATION` | `false` | Treat integration PRs like any other PR |
+| `FACTORY_MAX_AGENT_RETRIES` | 1 | Automatic retries of a stalled or failed agent session before the ticket goes to a human |
+| `FACTORY_AGENT_NO_PR_MINUTES` | 30 | Minutes after assignment without an agent PR before the session counts as stalled |
+| `FACTORY_AGENT_SESSION_MINUTES` | 90 | Minutes an agent session may run before it counts as stalled |
 
 ## Using it
 
@@ -165,11 +217,23 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
   `ready-for-agent`. Within a minute the issue gets 🚀 and `status:in-progress`;
   Copilot opens a draft PR. If the change is low risk it merges itself once CI
   and the Copilot review are green.
-- **Big or vague request:** comment `/grill`, answer the questions in a
-  comment, repeat until the grill says the frontier is empty. Comment `/spec`,
+- **Big or vague request:** in the cockpit, press **Grill here** and answer
+  the interview live; the session posts a `## Grilling summary` on the issue.
+  When a state-model or UI question needs to be seen, it offers a throwaway
+  prototype (`prototype` skill); the verdict lands in the summary.
+  Grilling is canvas-only: it is a fast back-and-forth that needs the code and
+  docs at hand, which an issue thread cannot give. When only the reporter
+  knows the answers, triage asks them on the issue (`needs-info`). Comment `/spec`,
   read the `## Spec` section, edit it if needed, then add `spec:approved`.
-  Watch the sub-issues appear and get worked in dependency order on
+  Watch the sub-issues appear; once all are published the spec gets
+  `tickets:ready` and they are worked in dependency order on
   `factory/spec-N`; review the integration PR at the end.
+- **Keeping the code easy to change:** each week the architecture scout posts
+  an `[architecture]` issue with deepening candidates (shallow modules found
+  in recent hot spots). In the cockpit press **Review here** on it, or the
+  toolbar's **Architecture review** for a fresh scan: Copilot CLI writes the
+  HTML report, grills you through the candidate you pick and files the agreed
+  refactor as an issue; comment `/spec` on it and it follows the normal path.
 - **Reviewing a risky PR:** the gate's comment has an **Open in Codespace**
   badge. The codespace checks out the PR branch, starts the app on port 3000
   and opens the preview, with the GitHub Pull Requests extension showing the
@@ -194,34 +258,113 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
   run, PR, review and gate.
 - **Stuck?** `gh workflow run dispatch.yml` and
   `gh workflow run risk-gate.yml -f pr=<n>` re-run the sweeps; both are
-  idempotent and also run on a schedule.
+  idempotent and also run on a schedule (see below).
+
+## When things fail
+
+Runs fail, often for infrastructure reasons. The factory retries once, then
+hands the work to a human with a label; the cockpit gathers it all under
+**Needs attention**.
+
+| What fails | What happens |
+|---|---|
+| Cloud agent session (no PR after 30 min, runs over 90 min, finishes with an error or leaves its PR titled `[WIP]`, PR closed unmerged) | The gate never merges a Copilot PR still titled `[WIP]`. The dispatcher cancels the agent's stuck run, if any (a hung session blocks new `@copilot` requests), then retries once: `@copilot` comment on the open PR, or unassign and re-assign. A second failure unassigns Copilot, swaps `status:in-progress` for `agent:failed` + `ready-for-human` and labels the PR `needs-human`. The slot and the tickets blocked by it are freed for a person. **Retry agent** in the cockpit re-adds `ready-for-agent`, which resets the retry budget |
+| CI (`startup_failure`, `timed_out`, or a failed job with no failed step) | The risk gate re-runs the failed jobs once (first attempt only). Real test failures are left to the fix loop |
+| Plan (a ticket could not be published, or the run failed) | The spec does not get `tickets:ready`, so none of its tickets start. Fix or delete the tickets, then add `tickets:ready` yourself to release them |
+| Triage | An issue without a triage label after 1 h gets `triage` re-added (one retry), then `factory:failure` and a comment. **Re-triage** in the cockpit tries again |
+| Any gh-aw workflow | gh-aw opens an `[aw] … failed` issue; the dispatcher labels it `factory:failure` |
+| The sweeps themselves | Each ticket, spec and PR is handled on its own: one error no longer stops the sweep, and the run fails at the end listing every error |
+
+Scheduled runs are best effort: GitHub delays them and may skip them, and on a
+quiet repository they may not run for hours. Events (labels, merges, CI) and the
+cockpit's **Dispatch** button drive the factory: a merged pull request starts
+the dispatcher at once (through the risk gate), and so does a finished cloud
+agent session when GitHub delivers that `workflow_run` event. For unattended
+operation add the external timer (`docs/external-timer.md`); the schedule is
+then the last safety net.
+The cockpit also lists every workflow whose latest run in the last 24 hours
+failed, with **Re-run failed jobs**.
+
+Nobody has to watch for these: the Alerts workflow @-mentions the owners on
+every item that ends up waiting for a human and opens an issue while a factory
+workflow keeps failing or the daily session cap holds work back. To stop
+everything at once (a runaway loop, a bad release of the agent, a budget
+scare), run `scripts/factory-pause.sh on` (add `--hard` to also disable the
+workflows), and `off` to resume.
+
+Re-running a gh-aw run partway is safe for triage, `/spec` and dispatch, which
+redo their work. `plan` stops when the spec already has sub-issues, but
+re-running only its `safe_outputs` job after it created some tickets can
+create duplicates; re-run the whole workflow instead.
 
 ## Branch rulesets
 
 `docs/ruleset-main.json` (default branch) and `docs/ruleset-factory.json`
 (`factory/**`) require a pull request, resolved review threads, code owner
-review (CODEOWNERS covers only the factory's own files) and the `test` and
-`factory/risk-gate` checks, and enable automatic Copilot code review. No
+review (CODEOWNERS covers only the factory's own files), the `test`,
+`tests-bite`, `analyze`, `dependency-review` and `factory/risk-gate` checks and
+no new CodeQL alerts at or above high severity (`code_scanning` rule), and
+enable automatic Copilot code review. On
+`factory/**` the checks are not enforced on branch creation
+(`do_not_enforce_on_create`); otherwise the dispatcher cannot create
+`factory/spec-N` (422 "Reference update failed"). No
 approval count is required: the risk gate's status carries that decision, so
 low-risk changes can merge without a human and high-risk ones cannot.
 
+`docs/ruleset-workflows.json` is a **push** ruleset: only repository admins
+may push a change under `.github/workflows/`, on any branch. GitHub accepts push
+rulesets on organization-owned repositories only; on a personal repository the
+script says so and skips it. Change a workflow yourself, on your own branch.
+
+In a solo repository the only code owner cannot approve their own pull
+request. `scripts/setup-repo.sh --admin-bypass` lets repository admins merge a
+default-branch pull request past the ruleset (the "bypass rules" checkbox):
+direct pushes stay blocked, and the bypass is visible on the pull request. Use
+it for your own changes to the factory, after adding `human-approved`; leave it
+off for team repositories.
+
 ## Security
+
+- CodeQL scans the app and the workflows on every PR, dependency review
+  blocks known-vulnerable dependencies, and the setup script turns on secret
+  scanning with push protection (free on public repositories). The risk gate
+  waits for GitHub's `CodeQL` check, so a PR with a new alert is never merged
+  automatically.
 
 - The agent token lives in an environment restricted to the default branch;
   code on the agent's branches cannot read it.
+- Evidence is split in two: `evidence.yml` runs the pull request's code with a
+  read-only token and only uploads an artifact; `evidence-publish.yml` runs the
+  default branch's script with a write token and accepts only PNG files with
+  the expected names, for the pull request whose head is still the one that
+  was photographed.
 - `risk-gate.yml` uses `pull_request_target` and always checks out the default
   branch, so a pull request cannot change the rules it is judged by. Changes to
   `.github/` are high risk and need code owner review.
-- Both required checks are pinned to the GitHub Actions app, so a PAT or
+- The required checks are pinned to the GitHub Actions app, so a PAT or
   another app cannot post them. Another *workflow* still could: `CI` runs the
   pull request's own definition (that is what `pull_request` means), so a branch
   that edits a workflow and asks for `statuses: write` could fake `test` or
   `factory/risk-gate` while it runs. Such a change touches `.github/`, so it is
   high risk and needs code owner review to merge, but the run itself happens
-  first. The setup script makes read-only the default token permission, which
-  does not stop a workflow from asking for more. To close this fully, publish
-  the gate from a dedicated GitHub App and pin the check to it, or keep
-  **Require approval for workflow runs** on and approve the agent's runs by hand.
+  first, with a token that can write to the repository and post the statuses
+  of *other* pull requests. The setup script makes read-only the default token
+  permission, which does not stop a workflow from asking for more. Two ways to
+  close this:
+  - organization repository: the `workflows: admins only` push ruleset stops
+    the agent from pushing workflow changes at all, so its runs only ever use
+    the default branch's definitions (CI: read-only token, no secrets). Then
+    turning off **Require approval for workflow runs** is safe;
+  - personal repository (no push rulesets): keep **Require approval for
+    workflow runs** on and approve the agent's runs by hand, after checking the
+    diff touches nothing under `.github/workflows/`.
+  Runs triggered by Copilot code review's comments (`pull_request_review`,
+  actor `Copilot`) also wait for approval; ignore them: the gate's status
+  comes from its other runs.
+- There are no repository-level secrets. The gh-aw workflows authenticate with
+  the run's own token (`copilot-requests: write`), and both tokens live in the
+  `copilot-agent` environment. A `COPILOT_GITHUB_TOKEN` repository secret left
+  from older gh-aw versions is unused: delete it.
 - Copilot's PRs show the token owner as author. GitHub does not let authors
   approve their own PRs, which is why `human-approved` exists. When a writer
   adds it, the gate records a `factory/human-approval` status on that exact
@@ -231,7 +374,11 @@ low-risk changes can merge without a human and high-risk ones cannot.
   `copilot-pull-request-reviewer[bot]` bot, and the gate asks for a new review
   whenever the current head has none.
 - `ready-for-agent` and `spec:approved` are honoured only from people with write
-  (respectively maintain) access or from the factory's own workflows.
+  (respectively maintain) access or from the factory's own workflows;
+  `tickets:ready` only from people with write access or from plan.
+- The order spec, then tickets, then code is enforced by the dispatcher: a
+  spec issue is never built itself, and a spec's tickets wait for
+  `spec:approved`, `tickets:ready` and the end of every plan run.
 
 ## Known limits
 
@@ -240,6 +387,29 @@ low-risk changes can merge without a human and high-risk ones cannot.
   no `[Standards]` / `[Spec]` prefixes, it did not load the skill.
 - Every fix round is another cloud agent session and another review: they
   bill as premium requests, hence the round cap.
+- `tests-bite` reruns whole test files, not single tests: a changed file
+  counts as biting when any of its tests fails on the base branch. A failing
+  `test` or `tests-bite` check is not sent back to the agent; the PR waits
+  for a human (the gate shows which check is missing).
+- CodeQL reports its `CodeQL` check a little after the `analyze` run ends,
+  so the gate may merge on its next sweep (every 15 minutes) instead of
+  right away. On plans without code scanning rulesets the setup script drops
+  the `code_scanning` rule; the gate still waits for the check.
+- The `factory-evidence` branch keeps every screenshot ever published; delete
+  it now and then (`git push origin --delete factory-evidence`), older
+  comments then show broken images. Screenshots use the app's synthetic
+  data, so they show layout and styling, not real content.
+- The scorecard measures lead time from PR opened to merged (not from
+  ticket to merged), counts reverts by `Revert` commit titles on the default
+  branch, and counts a merged PR as human-handled when it carries `risk:high`,
+  `needs-human` or `human-approved`. It reads at most the last 14 days.
+- Alerts are GitHub notifications (mail, web, mobile) plus an optional
+  webhook (`FACTORY_ALERT_WEBHOOK` secret, posted as `{"text": ...}`: Slack
+  incoming webhooks take it as is; for Teams, a "When a webhook request is
+  received" workflow that posts `text`). An org-owned repository needs
+  `FACTORY_OWNERS`, since an organisation cannot be mentioned.
+- The session cap counts the agent's runs; Copilot code review and gh-aw
+  runs are billed too but not counted.
 - `lane:local` only stops new assignments. Tickets the cloud agent already
   started finish on their own.
 
