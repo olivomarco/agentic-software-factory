@@ -7,6 +7,9 @@
 //     is low or a human approved the current head, pending otherwise;
 //   - keeps one comment on high-risk PRs that need a human: the reasons and an
 //     "Open in Codespace" link to try the change;
+//   - re-runs the failed jobs of a CI run once when the failure looks like
+//     infrastructure (startup failure, timeout, a job lost without a failing
+//     step), not code;
 //   - asks Copilot to review the current head when it has not, and merges
 //     when the gate, the required checks and that review all pass, the cloud
 //     agent is not working on the PR and no review thread blocks, then wakes
@@ -27,6 +30,7 @@ const {
   isCopilotReviewerLogin,
   blockingThreads,
   parseFixRequest,
+  isInfraFailure,
 } = require("./policy.cjs");
 
 const CONTEXT = "factory/risk-gate";
@@ -267,7 +271,8 @@ module.exports = async ({ github, context, core }) => {
       description = `High risk, approved by ${writers.join(", ")}`;
     } else {
       state = "pending";
-      description = `High risk: needs human approval. ${reasons.join("; ")}`;
+      // Lead with the action: the checks box shows only the first ~140 characters.
+      description = `Needs a human: approve in a review or add human-approved. High risk: ${reasons.join("; ")}`;
     }
     await github.rest.repos.createCommitStatus({
       owner,
@@ -284,7 +289,10 @@ module.exports = async ({ github, context, core }) => {
     const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
     if (state === "pending" && !pr.draft) await upsertSticky(number, comments, humanNeededComment(pr, reasons));
     else if (state === "success") {
-      const done = risk === "high" ? `### ✅ Approved by ${writers.join(", ")}` : "### ✅ Now low risk: no human needed";
+      // Keep why it was high risk, so the edited comment still explains the hold.
+      const done = risk === "high"
+        ? [`### ✅ Approved by ${writers.join(", ")}`, "", "It needed a human because:", "", ...reasons.map((r) => `- ${r}`)].join("\n")
+        : "### ✅ Now low risk: no human needed";
       await upsertSticky(number, comments, `${done}\n\n[Gate run](${runUrl})`, { create: false });
     }
 
@@ -324,6 +332,18 @@ module.exports = async ({ github, context, core }) => {
     log(`merged into ${pr.base.ref}`);
     await github.rest.actions.createWorkflowDispatch({ owner, repo, workflow_id: "dispatch.yml", ref: repoInfo.default_branch });
   }
+
+  // First attempts only, so a real breakage is never retried in a loop.
+  async function rerunInfraFailure() {
+    const run = context.payload.workflow_run;
+    if (!run || run.conclusion === "success" || (run.run_attempt ?? 1) > 1) return;
+    const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, { owner, repo, run_id: run.id, per_page: 100 });
+    if (!isInfraFailure(run, jobs)) return;
+    await github.rest.actions.reRunWorkflowFailedJobs({ owner, repo, run_id: run.id });
+    core.info(`${run.name} run ${run.id} failed (${run.conclusion}) without a failing step: re-running its failed jobs once`);
+    core.summary.addRaw(`- Re-ran the failed jobs of [${run.name} #${run.run_number}](${run.html_url}): infrastructure failure\n`);
+  }
+  await rerunInfraFailure().catch((e) => core.warning(`could not re-run the CI run: ${e.message}`));
 
   for (const n of await prNumbers()) await evaluate(n);
   await core.summary.write();

@@ -1,6 +1,6 @@
 ---
 description: Triage new issues with the triage skill. Categorises, checks for duplicates, writes an agent brief or asks for info; never starts implementation.
-intent: Give every new issue a category, a state and a code-grounded brief, so a maintainer can decide in one look between ready-for-agent, /grill and /spec, or wontfix.
+intent: Give every new issue a category, a state and a code-grounded brief, so a maintainer can decide in one look between ready-for-agent, a grilling session and /spec, or wontfix.
 on:
   issues:
     types: [opened, labeled]
@@ -51,7 +51,8 @@ unattended run:
      acceptance criteria, and end with "A maintainer can add `ready-for-agent`
      to start the cloud agent." Labels: category + `needs-triage`.
    - **Large, vague or spanning several changes**: explain why and recommend
-     `/grill` (interview) then `/spec`. Labels: category + `needs-triage`.
+     a grilling session (cockpit "Grill here") then `/spec`. If only the
+     reporter can answer, ask them the open questions here instead. Labels: category + `needs-triage`.
    - **Duplicate**: name the oldest surviving issue. Labels:
      `possible-duplicate` + `needs-triage`.
 5. Remove a state label that no longer applies, and the `triage` label if

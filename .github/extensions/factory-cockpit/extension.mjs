@@ -1,10 +1,10 @@
 // Extension: factory-cockpit
 // A Copilot CLI canvas over the software factory: the triage queue, specs with
 // their ticket trees and blockers, and pull requests with their risk gate.
-// Buttons map to the factory's own primitives (labels, /grill and /spec
-// comments, workflow runs) through the signed-in `gh` user. "Grill here" runs
-// the grill-with-docs skill in this CLI session and posts the outcome to the
-// issue, so local and asynchronous grilling end up in the same place.
+// Buttons map to the factory's own primitives (labels, /spec comments,
+// workflow runs) through the signed-in `gh` user. "Grill here" is the only
+// place grilling happens: it runs the grill-with-docs skill in this CLI session
+// and posts the outcome to the issue, where /spec picks it up.
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -19,13 +19,13 @@ const instances = new Map();
 
 // Actions the agent may trigger. Gate actions (approving a spec, starting an
 // agent, approving a PR) stay with the human clicking in the canvas.
-const AGENT_ACTIONS = ["grill", "spec", "retriage", "gate-pr", "dispatch"];
+const AGENT_ACTIONS = ["spec", "retriage", "retriage-failed", "rerun-run", "gate-pr", "dispatch"];
 
 function grillPrompt(repo, number) {
   const skill = join(repoRoot, ".github/skills/grill-with-docs/SKILL.md");
   return [
     `Grill me about issue #${number} in ${repo}, using the grill-with-docs skill at ${skill} (read it and the files it references first).`,
-    `Start by reading the issue and its comments with \`gh issue view ${number} --repo ${repo} --comments\`, including any earlier /grill rounds, and the code it touches.`,
+    `Start by reading the issue and its comments with \`gh issue view ${number} --repo ${repo} --comments\`, including triage's questions, the reporter's answers and any earlier grilling summary, and the code it touches.`,
     "Ask one question at a time with your recommended answer, using the ask_user tool, and keep going until we have a shared understanding.",
     `When we are done, post one comment on the issue with \`gh issue comment ${number} --repo ${repo} --body-file -\` titled "## Grilling summary (local session)": the decisions with their reasons, the resolved terms, and anything still open.`,
     "If a term or decision belongs in GLOSSARY.md or docs/adr/, list it in the comment; do not commit files.",
@@ -85,7 +85,10 @@ async function perform(entry, action, number) {
   if (action !== "dispatch" && !(Number.isInteger(number) && number > 0)) throw new CanvasError("bad_input", "An issue or PR number is required");
   await fn(entry.repo, number);
   entry.cache = null;
-  return action === "dispatch" ? "Dispatcher started" : `${action} done on #${number}`;
+  if (action === "dispatch") return "Dispatcher started";
+  if (action === "rerun-run") return `Re-running workflow run ${number}`;
+  if (action === "retry-agent") return `#${number} is ready for the agent again; the dispatcher picks it up`;
+  return `${action} done on #${number}`;
 }
 
 function readBody(req) {
@@ -148,6 +151,7 @@ function summary(state) {
   return {
     repo: state.repo,
     issuesByStage: byStage,
+    failedRuns: (state.failedRuns || []).map((r) => ({ id: r.id, workflow: r.workflow, title: r.title, conclusion: r.conclusion, url: r.url })),
     specs: state.specs.map((s) => ({
       number: s.number,
       title: s.title,
@@ -175,7 +179,8 @@ const session = await joinSession({
         actions: [
           {
             name: "get_state",
-            description: "Return the factory state shown in the cockpit: open issues by stage, specs with ticket trees, PRs with risk and gate status.",
+            description:
+              "Return the factory state shown in the cockpit: open issues by stage (attention = agent:failed or factory:failure), failed workflow runs, specs with ticket trees, PRs with risk and gate status.",
             handler: async (ctx) => summary(await stateFor(instanceOf(ctx), true)),
           },
           {

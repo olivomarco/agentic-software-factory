@@ -8,7 +8,7 @@ requests (see the note at the top of its `SKILL.md`).
 
 | Skill | Used by |
 | --- | --- |
-| `grilling`, `grill-with-docs`, `domain-modeling` | the cockpit canvas session and `/grill` |
+| `grilling`, `grill-with-docs`, `domain-modeling` | the cockpit canvas session (Grill here) |
 | `to-spec` | the cockpit canvas session and `/spec` |
 | `to-tickets` | the `plan` workflow after `spec:approved` |
 | `triage` | the cockpit canvas session and the `triage` workflow |

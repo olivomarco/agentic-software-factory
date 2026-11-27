@@ -19,7 +19,7 @@ triage.md ........ category + state labels, agent brief or questions (triage ski
   |-- small and clear -> maintainer adds ready-for-agent ----------------------.
   |                                                                            |
   |-- big or vague:                                                            |
-  |   /grill ....... one interview round per comment (grill-with-docs skill)   |
+  |   grill ........ cockpit "Grill here": live interview (grill-with-docs)    |
   |   /spec ........ ## Spec appended to the issue, label spec (to-spec skill) |
   |   HUMAN GATE: maintainer adds spec:approved                                |
   |   plan.md ...... sub-issues with blocked-by edges, ready-for-agent         |
@@ -94,7 +94,6 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Piece | File | Role |
 |---|---|---|
 | Triage | `.github/workflows/triage.md` | New issue (or label `triage`): triage skill, never adds `ready-for-agent` |
-| Grill | `.github/workflows/grill.md` | `/grill` comment: one round of questions, with recommended answers |
 | Spec | `.github/workflows/spec.md` | `/spec` comment: appends `## Spec`, labels `spec`, optional draft docs PR (glossary, ADR) |
 | Plan | `.github/workflows/plan.md` | `spec:approved`: creates sub-issues with blocked-by edges, then runs dispatch |
 | Dispatch | `.github/workflows/dispatch.yml`, `.github/factory/dispatch.cjs` | Assigns the cloud agent, closes merged tickets, opens integration PRs |
@@ -158,6 +157,9 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
 | `FACTORY_REQUIRE_COPILOT_REVIEW` | `true` | Wait for a Copilot review of the current head |
 | `FACTORY_AUTO_MERGE_DEFAULT_BRANCH` | `true` | Allow automatic merges into the default branch |
 | `FACTORY_AUTO_MERGE_INTEGRATION` | `false` | Treat integration PRs like any other PR |
+| `FACTORY_MAX_AGENT_RETRIES` | 1 | Automatic retries of a stalled or failed agent session before the ticket goes to a human |
+| `FACTORY_AGENT_NO_PR_MINUTES` | 30 | Minutes after assignment without an agent PR before the session counts as stalled |
+| `FACTORY_AGENT_SESSION_MINUTES` | 90 | Minutes an agent session may run before it counts as stalled |
 
 ## Using it
 
@@ -165,8 +167,11 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
   `ready-for-agent`. Within a minute the issue gets 🚀 and `status:in-progress`;
   Copilot opens a draft PR. If the change is low risk it merges itself once CI
   and the Copilot review are green.
-- **Big or vague request:** comment `/grill`, answer the questions in a
-  comment, repeat until the grill says the frontier is empty. Comment `/spec`,
+- **Big or vague request:** in the cockpit, press **Grill here** and answer
+  the interview live; the session posts a `## Grilling summary` on the issue.
+  Grilling is canvas-only: it is a fast back-and-forth that needs the code and
+  docs at hand, which an issue thread cannot give. When only the reporter
+  knows the answers, triage asks them on the issue (`needs-info`). Comment `/spec`,
   read the `## Spec` section, edit it if needed, then add `spec:approved`.
   Watch the sub-issues appear and get worked in dependency order on
   `factory/spec-N`; review the integration PR at the end.
@@ -194,16 +199,51 @@ gh-aw workflows themselves bill through `copilot-requests: write`.
   run, PR, review and gate.
 - **Stuck?** `gh workflow run dispatch.yml` and
   `gh workflow run risk-gate.yml -f pr=<n>` re-run the sweeps; both are
-  idempotent and also run on a schedule.
+  idempotent and also run on a schedule (see below).
+
+## When things fail
+
+Runs fail, often for infrastructure reasons. The factory retries once, then
+hands the work to a human with a label; the cockpit gathers it all under
+**Needs attention**.
+
+| What fails | What happens |
+|---|---|
+| Cloud agent session (no PR after 30 min, runs over 90 min, finishes with an error or leaves a `[WIP]` draft, PR closed unmerged) | The dispatcher retries once: `@copilot` comment on the open PR, or unassign and re-assign. A second failure unassigns Copilot, swaps `status:in-progress` for `agent:failed` + `ready-for-human` and labels the PR `needs-human`. The slot and the tickets blocked by it are freed for a person. **Retry agent** in the cockpit re-adds `ready-for-agent`, which resets the retry budget |
+| CI (`startup_failure`, `timed_out`, or a failed job with no failed step) | The risk gate re-runs the failed jobs once (first attempt only). Real test failures are left to the fix loop |
+| Triage | An issue without a triage label after 1 h gets `triage` re-added (one retry), then `factory:failure` and a comment. **Re-triage** in the cockpit tries again |
+| Any gh-aw workflow | gh-aw opens an `[aw] … failed` issue; the dispatcher labels it `factory:failure` |
+| The sweeps themselves | Each ticket, spec and PR is handled on its own: one error no longer stops the sweep, and the run fails at the end listing every error |
+
+Scheduled runs are best effort: GitHub delays them and may skip them, and on a
+quiet repository they may not run for hours. Events (labels, merges, CI) and the
+cockpit's **Dispatch** button drive the factory; the schedule is a safety net.
+The cockpit also lists every workflow whose latest run in the last 24 hours
+failed, with **Re-run failed jobs**.
+
+Re-running a gh-aw run partway is safe for triage, `/spec` and dispatch, which
+redo their work. `plan` stops when the spec already has sub-issues, but
+re-running only its `safe_outputs` job after it created some tickets can
+create duplicates; re-run the whole workflow instead.
 
 ## Branch rulesets
 
 `docs/ruleset-main.json` (default branch) and `docs/ruleset-factory.json`
 (`factory/**`) require a pull request, resolved review threads, code owner
 review (CODEOWNERS covers only the factory's own files) and the `test` and
-`factory/risk-gate` checks, and enable automatic Copilot code review. No
+`factory/risk-gate` checks, and enable automatic Copilot code review. On
+`factory/**` the checks are not enforced on branch creation
+(`do_not_enforce_on_create`); otherwise the dispatcher cannot create
+`factory/spec-N` (422 "Reference update failed"). No
 approval count is required: the risk gate's status carries that decision, so
 low-risk changes can merge without a human and high-risk ones cannot.
+
+In a solo repository the only code owner cannot approve their own pull
+request. `scripts/setup-repo.sh --admin-bypass` lets repository admins merge a
+default-branch pull request past the ruleset (the "bypass rules" checkbox):
+direct pushes stay blocked, and the bypass is visible on the pull request. Use
+it for your own changes to the factory, after adding `human-approved`; leave it
+off for team repositories.
 
 ## Security
 

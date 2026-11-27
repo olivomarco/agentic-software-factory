@@ -14,17 +14,17 @@ add the `triage` label to run it again.
 | Make the app better | nothing | Triage should answer `needs-info` and write no brief |
 | Support a dark theme | nothing | Duplicate of the dark mode toggle: expect `possible-duplicate` |
 | Todos can be created with only spaces as the title | nothing | Bug: triage reproduces and writes a brief |
-| Persist todos between server restarts | `/grill`, then `/spec` | Design decision under the dependency-free constraint |
-| Add drag and drop reordering of todos | `/grill` | Larger change that overlaps with persistence |
+| Persist todos between server restarts | Grill here, then `/spec` | Design decision under the dependency-free constraint |
+| Add drag and drop reordering of todos | Grill here | Larger change that overlaps with persistence |
 | Show a count of remaining todos in the page title | `ready-for-agent` | Small change |
-| Add keyboard shortcut to focus the new todo input | `/grill` | Vague edge cases (typing in other fields) |
+| Add keyboard shortcut to focus the new todo input | Grill here | Vague edge cases (typing in other fields) |
 | Keep long todo titles readable on narrow screens | nothing | Shares a cause with the long URL issue |
 | Check whether a long URL pushes todo controls off-screen | nothing | Expect a related-or-duplicate call |
 | Keep keyboard focus predictable when deleting a todo | nothing | Investigation only |
 | Make accidental todo deletion recoverable | nothing | "Do not implement" must be respected |
 | Give the empty todo list a clear first action | nothing | Investigation of an empty state |
-| Organise todos into lists | `/grill` x N, `/spec`, `spec:approved` | Full spec path: sub-issues, blocked-by, `factory/spec-N`, integration PR |
-| Undo for everything | `/grill`, `/spec`, `spec:approved` | Spec path with a cross-cutting design (ADR candidate) |
+| Organise todos into lists | Grill here, `/spec`, `spec:approved` | Full spec path: sub-issues, blocked-by, `factory/spec-N`, integration PR |
+| Undo for everything | Grill here, `/spec`, `spec:approved` | Spec path with a cross-cutting design (ADR candidate) |
 
 Suggested first run: "Rename the demo page heading" end to end (watch it merge
 itself), then "Organise todos into lists" through the whole spec path.
