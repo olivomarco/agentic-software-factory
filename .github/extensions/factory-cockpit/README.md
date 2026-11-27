@@ -32,5 +32,9 @@ The agent can drive the canvas too (`get_state`, `show`, and `run` for
 deliberately not exposed to it: approving a spec, starting the agent and
 approving a risky PR stay a human click.
 
+Keyboard: `/` filters, `r` refreshes, `1` `2` `3` switch tabs, `Esc` clears. Rarely used actions
+(Re-triage, Won't fix, Re-run gate) sit in each card's `⋯` menu; gate actions and Won't fix ask
+for confirmation in the panel.
+
 The panel is served from a loopback port behind a random path, refreshes every
 minute and after each action.
