@@ -1,0 +1,50 @@
+name: Alerts
+
+# Tells the factory's owners (vars.FACTORY_OWNERS, default: the repository
+# owner) when something waits for a human: @-mentions on the item, issues for
+# failing factory workflows and the daily session cap, and an optional webhook
+# (secrets.FACTORY_ALERT_WEBHOOK). See .github/factory/alerts.cjs.
+# Labels added with GITHUB_TOKEN start no workflows, so it also runs after each
+# factory workflow and hourly.
+on:
+  issues:
+    types: [labeled]
+  pull_request_target:
+    types: [labeled]
+  workflow_run:
+    workflows: [Dispatch, Risk gate, Project sync, Evidence publish, "Triage the issue", "Write the spec", "Plan the approved spec", "Architecture scout"]
+    types: [completed]
+  workflow_dispatch:
+  schedule:
+    - cron: "41 * * * *"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: factory-alerts
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || contains(fromJSON('["agent:failed","factory:failure","needs-human"]'), github.event.label.name)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/factory
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        env:
+          OWNERS: ${{ vars.FACTORY_OWNERS }}
+          WEBHOOK: ${{ secrets.FACTORY_ALERT_WEBHOOK }}
+          PAUSED: ${{ vars.FACTORY_PAUSED || 'false' }}
+          MAX_SESSIONS_PER_DAY: ${{ vars.FACTORY_MAX_SESSIONS_PER_DAY || '20' }}
+        with:
+          script: |
+            const alerts = require(`${process.env.GITHUB_WORKSPACE}/.github/factory/alerts.cjs`);
+            await alerts({ github, context, core });

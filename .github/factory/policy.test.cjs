@@ -10,6 +10,9 @@ const {
   ticketGate,
   scorecard,
   scorecardTable,
+  alertMarker,
+  alertDue,
+  mentions,
   biteMode,
   biteVerdict,
   isEvidenceShot,
@@ -308,4 +311,19 @@ test("the scorecard counts only the window and only the agent's PRs", () => {
   assert.deepStrictEqual([s.sessions, s.failedSessions, s.reviews, s.reverts], [2, 1, 1, 1]);
   const table = scorecardTable(s, scorecard({ from: from - 7 * 864e5, to: from }));
   assert.match(table, /\| Success rate \(merged \/ finished\) \| 67% \| – \|/);
+});
+
+test("alerts announce each attention label once per time it is added", () => {
+  const at = (m) => `2026-11-27T10:${String(m).padStart(2, "0")}:00Z`;
+  const alert = (labels, m) => ({ body: `hi\n${alertMarker(labels)}`, created_at: at(m) });
+  const labels = ["agent:failed", "ready-for-human", "needs-human"];
+  assert.deepStrictEqual(alertDue({ labels, labeledAt: { "agent:failed": at(1), "needs-human": at(1) } }), ["agent:failed", "needs-human"]);
+  assert.deepStrictEqual(alertDue({ labels, labeledAt: { "agent:failed": at(1), "needs-human": at(1) }, alerts: [alert(["agent:failed"], 2)] }), ["needs-human"]);
+  // Removed and added again later: announce again; added with the alert: covered.
+  assert.deepStrictEqual(alertDue({ labels: ["agent:failed"], labeledAt: { "agent:failed": at(9) }, alerts: [alert(["agent:failed"], 2)] }), ["agent:failed"]);
+  assert.deepStrictEqual(alertDue({ labels: ["factory:failure"], labeledAt: { "factory:failure": "2026-11-27T10:02:30Z" }, alerts: [alert(["factory:failure"], 2)] }), []);
+  // A marker someone else wrote in prose does not count unless it is in alerts.
+  assert.deepStrictEqual(alertDue({ labels: ["bug"], labeledAt: {} }), []);
+  assert.strictEqual(mentions("olivomarco, @org/team"), "@olivomarco @org/team");
+  assert.strictEqual(mentions(""), "");
 });

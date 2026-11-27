@@ -49,6 +49,7 @@ jobs:
           REQUIRE_COPILOT_REVIEW: ${{ vars.FACTORY_REQUIRE_COPILOT_REVIEW || 'true' }}
           AUTO_MERGE_DEFAULT_BRANCH: ${{ vars.FACTORY_AUTO_MERGE_DEFAULT_BRANCH || 'true' }}
           AUTO_MERGE_INTEGRATION: ${{ vars.FACTORY_AUTO_MERGE_INTEGRATION || 'false' }}
+          PAUSED: ${{ vars.FACTORY_PAUSED || 'false' }}
         with:
           script: |
             const gate = require(`${process.env.GITHUB_WORKSPACE}/.github/factory/risk-gate.cjs`);
