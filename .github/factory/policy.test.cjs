@@ -8,6 +8,8 @@ const {
   closingRefs,
   isCopilotDone,
   ticketGate,
+  biteMode,
+  biteVerdict,
   humanApprovals,
   isSpecBranch,
   mergeDangerDoor,
@@ -228,4 +230,24 @@ test("tickets of a spec wait until plan has published them all", () => {
   // Outside a spec the direct ready-for-agent path stays open.
   assert.strictEqual(ticketGate(["ready-for-agent"], null), null);
   assert.strictEqual(ticketGate(["ready-for-agent"], { labels: ["enhancement"] }), null);
+});
+
+test("tests-bite asks for a test that fails on base and passes on head", () => {
+  const files = ["backend/app.js", "backend/app.test.js"];
+  assert.strictEqual(biteMode({ title: "fix: empty title", files }).mode, "run");
+  assert.deepStrictEqual(biteMode({ title: "[WIP] fix: x", files }).tests, ["backend/app.test.js"]);
+  // Source without a test fails; untyped titles are held to the same rule.
+  assert.strictEqual(biteMode({ title: "feat: x", files: ["backend/app.js"] }).mode, "fail");
+  assert.strictEqual(biteMode({ title: "Initial plan", files: ["frontend/app.js"] }).mode, "fail");
+  // Types that need no new test, and changes without source code, skip.
+  assert.strictEqual(biteMode({ title: "refactor: x", files: ["backend/app.js"] }).mode, "skip");
+  assert.strictEqual(biteMode({ title: "feat: x", files: ["docs/a.md", ".github/factory/policy.cjs"] }).mode, "skip");
+  assert.strictEqual(biteMode({ title: "Spec #3: x", files: ["backend/app.js"], headRef: "factory/spec-3" }).mode, "skip");
+  assert.strictEqual(biteMode({ title: "feat: x", files: ["src/test/java/FooTest.java", "src/main/java/Foo.java"] }).mode, "run");
+
+  assert.strictEqual(biteVerdict([{ file: "a.test.js", base: 1, head: 0 }]).ok, true);
+  // A test that already passes on base does not check the change.
+  assert.strictEqual(biteVerdict([{ file: "a.test.js", base: 0, head: 0 }]).ok, false);
+  assert.strictEqual(biteVerdict([{ file: "a.test.js", base: 1, head: 1 }]).ok, false);
+  assert.strictEqual(biteVerdict([{ file: "a.test.js", base: 1, head: 0 }, { file: "b.test.js", base: 0, head: 0 }]).ok, true);
 });

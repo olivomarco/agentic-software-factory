@@ -44,7 +44,7 @@ const STICKY = "<!-- factory:risk-gate -->";
 
 module.exports = async ({ github, context, core }) => {
   const { owner, repo } = context.repo;
-  const requiredChecks = (process.env.REQUIRED_CHECKS || "test").split(",").map((s) => s.trim()).filter(Boolean);
+  const requiredChecks = (process.env.REQUIRED_CHECKS || "test,tests-bite").split(",").map((s) => s.trim()).filter(Boolean);
   const requireCopilotReview = process.env.REQUIRE_COPILOT_REVIEW !== "false";
   const autoMergeDefault = process.env.AUTO_MERGE_DEFAULT_BRANCH !== "false";
   const autoMergeIntegration = process.env.AUTO_MERGE_INTEGRATION === "true";

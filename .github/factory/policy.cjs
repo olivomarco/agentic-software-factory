@@ -363,6 +363,43 @@ function projectValues(item) {
   return { Status: status, Kind: kind, Risk: null };
 }
 
+// Tests-bite: a change to source code must come with a test that fails on the
+// base branch and passes on the pull request, so a test that cannot catch the
+// bug (or the missing feature) does not count. Types that need no new test
+// (docs, refactor, test, ci, build) skip the check; so do changes that touch
+// no source code.
+const TEST_FILE = /(^|\/)(tests?|__tests__|src\/test)\/|\.(test|spec)\.[cm]?[jt]sx?$|Tests?\.(java|kt|cs)$/;
+const NON_SOURCE = /^(\.github|\.devcontainer|docs|samples)\/|\.(md|txt|png|jpe?g|svg|gif)$|^(LICENSE|CODEOWNERS|\.gitignore)$/;
+const BITE_SKIP_TYPES = ["documentation", "refactor", "tests", "ci", "dependencies"];
+
+function isTestFile(path) {
+  return TEST_FILE.test(path || "");
+}
+
+// What the tests-bite check does for a pull request: "skip", "fail" (source
+// changed, no test changed) or "run" the changed tests against base and head.
+function biteMode({ title, files = [], headRef = "" }) {
+  if (isSpecBranch(headRef)) return { mode: "skip", reason: "integration pull request (each ticket was checked)", tests: [] };
+  const type = titleType(title).label;
+  if (BITE_SKIP_TYPES.includes(type)) return { mode: "skip", reason: `${type} change`, tests: [] };
+  const tests = files.filter(isTestFile);
+  const source = files.filter((f) => !isTestFile(f) && !NON_SOURCE.test(f));
+  if (!source.length) return { mode: "skip", reason: "no source code changed", tests };
+  if (!tests.length) return { mode: "fail", reason: "source code changed but no test was added or changed", tests };
+  return { mode: "run", reason: `${tests.length} changed test file(s)`, tests };
+}
+
+// The verdict after running each changed test file on base and on head.
+// results: [{ file, base: exitCode, head: exitCode }]
+function biteVerdict(results) {
+  const notPassing = results.filter((r) => r.head !== 0).map((r) => r.file);
+  if (notPassing.length) return { ok: false, reason: `failing on the pull request: ${notPassing.join(", ")}` };
+  if (!results.some((r) => r.base !== 0)) {
+    return { ok: false, reason: "every changed test also passes on the base branch, so none of them checks this change" };
+  }
+  return { ok: true, reason: `bites: ${results.filter((r) => r.base !== 0).map((r) => r.file).join(", ")}` };
+}
+
 module.exports = {
   issueStage,
   PROJECT_FIELDS,
@@ -392,4 +429,7 @@ module.exports = {
   specBranch,
   TICKETS_READY,
   ticketGate,
+  isTestFile,
+  biteMode,
+  biteVerdict,
   isSpecBranch, classifyRisk, closingRefs, isCopilotDone, isCopilotUnfinished, humanApprovals };
