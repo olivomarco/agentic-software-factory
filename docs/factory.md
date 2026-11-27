@@ -194,6 +194,8 @@ read/write works too.
 
 ### Tunables (repository variables)
 
+`scripts/setup-repo.sh` creates every variable below that has a default, with that default, and never overwrites one that exists. `FACTORY_OWNERS` and `FACTORY_PAUSED` are left unset.
+
 | Variable | Default | Effect |
 |---|---|---|
 | `FACTORY_MAX_ACTIVE` | 3 | Tickets the cloud agent works on at once |
