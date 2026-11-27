@@ -108,7 +108,7 @@ async function perform(entry, action, number) {
     await session.send({ prompt: buildPrompt(entry.repo, number) });
     return `Spec #${number} is now lane:local; building it in the Copilot CLI chat`;
   }
-  const fn = ACTIONS[action];
+  const fn = Object.hasOwn(ACTIONS, action) ? ACTIONS[action] : undefined;
   if (!fn) throw new CanvasError("unknown_action", `Unknown action ${action}`);
   if (action !== "dispatch" && !(Number.isInteger(number) && number > 0)) throw new CanvasError("bad_input", "An issue or PR number is required");
   await fn(entry.repo, number);
