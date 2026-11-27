@@ -761,7 +761,8 @@ function renderSpecs(main) {
       }
       extra.push(ul);
     }
-    const actions = !isOpen ? [] : s.stage === "spec" ? ISSUE_ACTIONS.spec : approved && !local ? [["build-local", "Build here", "primary"]] : [];
+    // Nothing left to build once every ticket is closed; only the integration PR is open.
+    const actions = !isOpen ? [] : s.stage === "spec" ? ISSUE_ACTIONS.spec : approved && !local && !(total && done === total) ? [["build-local", "Build here", "primary"]] : [];
     grid.append(card(s, {
       color: !isOpen ? (isDone(s) ? "var(--purple)" : "var(--gray)") : approved ? "var(--ok)" : "var(--accent)",
       right: !isOpen ? badge(isDone(s) ? "shipped" : closedLabel(s), isDone(s) ? "merged" : "neutral", isDone(s) ? "done" : "skip") : badge(approved ? "approved" : "awaiting approval", approved ? "ok" : "warn"),
