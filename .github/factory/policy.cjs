@@ -130,11 +130,16 @@ const AGENT_LIMITS = { noPrMs: 30 * MINUTE, sessionMs: 90 * MINUTE, wipMs: 15 * 
 
 // The agent's sessions on a PR, from its timeline: the last start, the last
 // finish (any copilot_work_finished* event) and whether that finish failed.
+// Copilot code review posts copilot_work_started too (from its own app) and
+// never a finish, so only the coding agent's events count.
+const AGENT_APP = "copilot-swe-agent";
 function agentSession(timeline) {
   let started = 0;
   let finished = 0;
   let failed = false;
   for (const e of timeline) {
+    const app = e.performed_via_github_app?.slug;
+    if (app && app !== AGENT_APP) continue;
     const t = Date.parse(e.created_at);
     if (e.event === "copilot_work_started") started = Math.max(started, t);
     if (/^copilot_work_finished/.test(e.event || "") && t >= finished) {
