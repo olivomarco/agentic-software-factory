@@ -28,22 +28,31 @@ module.exports = async ({ github, context, core, dir }) => {
   const { data: current } = await github.rest.pulls.get({ owner, repo, pull_number: pr });
   if (current.head.sha !== sha) return core.info(`#${pr} moved on to ${current.head.sha}; skipping stale screenshots`);
 
-  const names = (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((name) => {
-    const file = path.join(dir, name);
-    const stat = fs.lstatSync(file);
-    if (!isEvidenceShot(name) || !stat.isFile() || stat.size > MAX_BYTES) return false;
-    const head = Buffer.alloc(8);
-    const fd = fs.openSync(file, "r");
-    fs.readSync(fd, head, 0, 8, 0);
-    fs.closeSync(fd);
-    return head.equals(PNG);
-  }).slice(0, MAX_FILES);
+  // Open each file once (never through a symlink) and check and read that
+  // same descriptor, so nothing can swap the file in between.
+  const shots = [];
+  for (const name of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    if (shots.length >= MAX_FILES || !isEvidenceShot(name)) continue;
+    let fd;
+    try {
+      fd = fs.openSync(path.join(dir, name), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile() || stat.size > MAX_BYTES) continue;
+      const data = fs.readFileSync(fd);
+      if (data.subarray(0, 8).equals(PNG)) shots.push({ name, data });
+    } catch {
+      continue;
+    } finally {
+      if (fd !== undefined) fs.closeSync(fd);
+    }
+  }
+  const names = shots.map((s) => s.name);
   if (!names.length) return core.info("no screenshots to publish");
 
   const prefix = `pr-${pr}/${sha.slice(0, 12)}`;
   const tree = [];
-  for (const name of names) {
-    const { data: blob } = await github.rest.git.createBlob({ owner, repo, content: fs.readFileSync(path.join(dir, name)).toString("base64"), encoding: "base64" });
+  for (const { name, data } of shots) {
+    const { data: blob } = await github.rest.git.createBlob({ owner, repo, content: data.toString("base64"), encoding: "base64" });
     tree.push({ path: `${prefix}/${name}`, mode: "100644", type: "blob", sha: blob.sha });
   }
 
