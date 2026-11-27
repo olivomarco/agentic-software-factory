@@ -17,3 +17,19 @@ test("served todo title styles allow long text to wrap within its row", async ()
     server.close();
   }
 });
+
+test("served completed todo styles keep titles struck through and muted", async () => {
+  const server = createApp();
+  await new Promise((resolve) => server.listen(0, resolve));
+  try {
+    const response = await fetch(`http://localhost:${server.address().port}/styles.css`);
+    assert.equal(response.status, 200);
+    const css = await response.text();
+    const doneRule = css.match(/\.done\s*\{([^}]*)\}/);
+    assert.ok(doneRule, "completed todo rule exists");
+    assert.match(doneRule[1], /\btext-decoration\s*:\s*line-through\s*;/);
+    assert.match(doneRule[1], /\bcolor\s*:\s*#6b627a\s*;/i);
+  } finally {
+    server.close();
+  }
+});
