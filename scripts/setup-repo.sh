@@ -92,6 +92,15 @@ echo "  squash merge on, delete head branches after merge"
 gh api -X PUT "repos/$repo/actions/permissions/workflow" \
   -f default_workflow_permissions=read -F can_approve_pull_request_reviews=false >/dev/null
 echo "  default GITHUB_TOKEN permissions: read"
+# Free on public repositories; private ones need GitHub Secret Protection.
+if gh api -X PATCH "repos/$repo" --input - >/dev/null 2>&1 <<'JSON'
+{"security_and_analysis":{"secret_scanning":{"status":"enabled"},"secret_scanning_push_protection":{"status":"enabled"}}}
+JSON
+then
+  echo "  secret scanning and push protection on"
+else
+  echo "  secret scanning not available here (needs GitHub Secret Protection on private repos)"
+fi
 
 if [ -n "$owner" ]; then
   echo "== CODEOWNERS"
@@ -171,12 +180,13 @@ PY
     python3 - "$prepared" "$fallback" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
-d["rules"] = [r for r in d["rules"] if r["type"] != "copilot_code_review"]
+d["rules"] = [r for r in d["rules"] if r["type"] not in ("copilot_code_review", "code_scanning")]
 json.dump(d, open(sys.argv[2], "w"))
 PY
     if apply "$fallback" 2>>"$err"; then
-      echo "  '$name' applied WITHOUT copilot_code_review (not accepted here)."
-      echo "  Enable automatic Copilot code review in the repository settings."
+      echo "  '$name' applied WITHOUT copilot_code_review and code_scanning (not accepted here)."
+      echo "  Enable automatic Copilot code review in the repository settings; CodeQL"
+      echo "  still runs and the risk gate still waits for its check."
     else
       cat "$err" >&2
       echo "  Could not apply '$name'. You need admin rights on $repo." >&2
