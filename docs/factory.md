@@ -239,7 +239,7 @@ hands the work to a human with a label; the cockpit gathers it all under
 
 | What fails | What happens |
 |---|---|
-| Cloud agent session (no PR after 30 min, runs over 90 min, finishes with an error or leaves a `[WIP]` draft, PR closed unmerged) | The dispatcher retries once: `@copilot` comment on the open PR, or unassign and re-assign. A second failure unassigns Copilot, swaps `status:in-progress` for `agent:failed` + `ready-for-human` and labels the PR `needs-human`. The slot and the tickets blocked by it are freed for a person. **Retry agent** in the cockpit re-adds `ready-for-agent`, which resets the retry budget |
+| Cloud agent session (no PR after 30 min, runs over 90 min, finishes with an error or leaves its PR titled `[WIP]`, PR closed unmerged) | The gate never merges a Copilot PR still titled `[WIP]`. The dispatcher cancels the agent's stuck run, if any (a hung session blocks new `@copilot` requests), then retries once: `@copilot` comment on the open PR, or unassign and re-assign. A second failure unassigns Copilot, swaps `status:in-progress` for `agent:failed` + `ready-for-human` and labels the PR `needs-human`. The slot and the tickets blocked by it are freed for a person. **Retry agent** in the cockpit re-adds `ready-for-agent`, which resets the retry budget |
 | CI (`startup_failure`, `timed_out`, or a failed job with no failed step) | The risk gate re-runs the failed jobs once (first attempt only). Real test failures are left to the fix loop |
 | Triage | An issue without a triage label after 1 h gets `triage` re-added (one retry), then `factory:failure` and a comment. **Re-triage** in the cockpit tries again |
 | Any gh-aw workflow | gh-aw opens an `[aw] … failed` issue; the dispatcher labels it `factory:failure` |

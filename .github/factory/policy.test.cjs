@@ -80,6 +80,7 @@ test("agent health: stuck, failed and closed work is noticed, slow work is not",
   const done = [ev("copilot_work_started", "2026-01-01T10:00:00Z"), ev("copilot_work_finished", "2026-01-01T10:20:00Z")];
   assert.strictEqual(status({ since: at("09:59"), pr: pr(done) }), "ok");
   assert.strictEqual(status({ since: at("09:59"), pr: pr(done, { draft: true, title: "[WIP] Wrap titles" }) }), "stalled", "gave up as WIP");
+  assert.strictEqual(status({ since: at("09:59"), pr: pr(done, { title: "[WIP] Wrap titles" }) }), "stalled", "marked ready, wrap-up never ran");
 });
 
 test("recovery retries once, but never overrides a human", () => {

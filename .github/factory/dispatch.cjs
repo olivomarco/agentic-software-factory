@@ -33,6 +33,9 @@ const {
 } = require("./policy.cjs");
 
 const COPILOT_LOGINS = ["copilot-swe-agent[bot]", "copilot-swe-agent"];
+// Cloud agent sessions run as "dynamic" workflow runs under this path; Copilot
+// code review uses dynamic/agents/copilot-pull-request-reviewer.
+const AGENT_RUN_PATH = "dynamic/copilot-swe-agent/";
 const WRITE_ROLES = new Set(["admin", "maintain", "write"]);
 
 module.exports = async ({ github, context, core }) => {
@@ -163,6 +166,16 @@ module.exports = async ({ github, context, core }) => {
     return logins.length ? github.rest.issues.removeAssignees({ owner, repo, issue_number: issue.number, assignees: logins }) : null;
   };
 
+  async function cancelAgentRuns(branch) {
+    const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, { owner, repo, branch, status: "in_progress", per_page: 100 });
+    for (const run of runs.filter((r) => r.path?.startsWith(AGENT_RUN_PATH))) {
+      await github.rest.actions
+        .cancelWorkflowRun({ owner, repo, run_id: run.id })
+        .then(() => core.info(`cancelled the stuck agent run ${run.id} on ${branch}`))
+        .catch((e) => core.warning(`could not cancel agent run ${run.id}: ${e.message}`));
+    }
+  }
+
   // A ticket in progress whose agent failed, stalled, or lost its PR: retry
   // (a new session on its PR, or a fresh assignment), then hand to a human.
   // Retries count from the last time a maintainer made it ready-for-agent.
@@ -182,6 +195,9 @@ module.exports = async ({ github, context, core }) => {
     const health = agentHealth({ assigned: issue.assignees.some(isCopilot), since, pr, closedPr, now, limits });
     const action = recoveryAction(health, { retries: markers.length, maxRetries: maxAgentRetries });
     if (action === "none") return;
+    // A stuck session holds the PR: GitHub queues new @copilot requests behind
+    // it. Cancelling it also records the session as finished.
+    if (open) await cancelAgentRuns(open.head.ref);
 
     if (action === "retry") {
       const round = markers.length + 1;

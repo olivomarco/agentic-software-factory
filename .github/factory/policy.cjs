@@ -105,6 +105,9 @@ function describeLabels({ title, body, issueLabels = [] }) {
 function isCopilotDone(pr) {
   return /^copilot\//.test(pr.head.ref) && !/^\s*\[WIP\]/i.test(pr.title);
 }
+function isCopilotUnfinished(pr) {
+  return /^copilot\//.test(pr.head.ref) && /^\s*\[WIP\]/i.test(pr.title || "");
+}
 
 // Latest review per user; approvals only count on the current head and from
 // someone other than the author.
@@ -190,8 +193,10 @@ function agentHealth({ assigned = true, since = 0, pr = null, closedPr = null, n
       : ok;
   }
   if (s.failed) return { status: "failed", reason: "the agent's session ended with an error" };
-  if (pr.draft && /^\s*\[WIP\]/i.test(pr.title || "") && s.finished && now - s.finished > limits.wipMs) {
-    return { status: "stalled", reason: "the agent's session ended but the pull request is still a [WIP] draft" };
+  // Draft or not: a session can die after marking the PR ready but before
+  // its wrap-up (title and description).
+  if (/^\s*\[WIP\]/i.test(pr.title || "") && s.finished && now - s.finished > limits.wipMs) {
+    return { status: "stalled", reason: `the agent's session ended but the pull request is still ${pr.draft ? "a [WIP] draft" : "titled [WIP]"}` };
   }
   return ok;
 }
@@ -368,4 +373,4 @@ module.exports = {
   fixLoopAction,
   isLocalSpecBranch,
   specBranch,
-  isSpecBranch, classifyRisk, closingRefs, isCopilotDone, humanApprovals };
+  isSpecBranch, classifyRisk, closingRefs, isCopilotDone, isCopilotUnfinished, humanApprovals };

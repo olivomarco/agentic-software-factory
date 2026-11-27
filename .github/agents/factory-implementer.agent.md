@@ -30,10 +30,15 @@ factory specifics:
 
 ## Show the work
 
-For a change visible in the UI, capture a matching before/after pair with the
-Playwright browser tool: start the app with `npm start` (synthetic in-memory
-data, http://localhost:3000) and screenshot the affected view before editing,
-then again after the change with tests passing.
+For a change visible in the UI, check it in the Playwright browser tool
+before editing and again after the change with tests passing: start the app
+with `npm start` (synthetic in-memory data, http://localhost:3000) and read
+the page with snapshots and JavaScript measurements (viewport width,
+`scrollWidth`, element sizes, computed styles, contrast) and by using the
+controls. **Do not take screenshots** (`browser_take_screenshot`): the pull
+request cannot take image uploads from here, and sessions that captured
+screenshots stopped without finishing. Reviewers see the result in the
+review codespace.
 
 Title the pull request in Conventional Commits style, `type(scope): summary`
 with type `feat`, `fix`, `docs`, `refactor`, `test`, `ci` or `build`, and a
@@ -51,9 +56,14 @@ Write the pull request description with the `pr` skill
   sends the pull request to a human whatever its size, so never mark a one-way
   door as two-way to get it merged faster.
 
-Under **Evidence**, embed the Before and After screenshots, or the failing and
-passing test run when nothing visual changed. Say plainly if you could not
-capture something.
+Under **Evidence**, give Before and After as text, overriding the `pr`
+skill's screenshots: for each browser check, the viewport, what you did and
+what you measured (for example `320px: title wraps to 9 lines, scrollWidth
+320`), plus the failing and passing test run. Say plainly if you could not
+check something.
+
+Finish by updating the pull request's title and description: drop the
+`[WIP]` prefix only once the description is complete.
 
 Keep the change small: the factory merges small, two-way-door changes outside
 sensitive paths automatically and sends the rest to a human.

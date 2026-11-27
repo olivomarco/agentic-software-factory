@@ -17,6 +17,7 @@
 const {
   classifyRisk,
   isCopilotDone,
+  isCopilotUnfinished,
   humanApprovals,
   isSpecBranch,
   isLocalSpecBranch,
@@ -301,6 +302,9 @@ module.exports = async ({ github, context, core }) => {
     if (!isSpecBranch(pr.base.ref) && pr.base.ref !== repoInfo.default_branch) return log(`base ${pr.base.ref} is not managed by the factory`);
 
     if (await agentBusy(number, comments)) return log("the Copilot cloud agent is working on this pull request");
+    // A session that died before its wrap-up leaves "[WIP]": the squash commit
+    // would carry it and the description is unfinished. The dispatcher retries.
+    if (isCopilotUnfinished(pr)) return log("the agent has not finished: the title still starts with [WIP]");
     const missing = await checksPassed(pr.head.sha);
     if (missing.length) return log(`waiting for checks: ${missing.join(", ")}`);
     const copilotReviewed = reviews.some((r) => isCopilotReview(r) && r.commit_id === pr.head.sha);
