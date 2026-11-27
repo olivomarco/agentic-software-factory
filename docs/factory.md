@@ -109,7 +109,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Skills | `.github/skills/` | Matt Pocock's skills (MIT), see `.github/skills/README.md` |
 | Skill config | `docs/agents/*.md` | Issue tracker, label vocabulary, domain docs |
 | Rulesets | `docs/ruleset-main.json`, `docs/ruleset-factory.json` | Applied by the setup script |
-| Cockpit | `.github/extensions/factory-cockpit/` | Copilot CLI canvas: queue, grilling, specs, tickets, PR risk |
+| Cockpit | `.github/extensions/factory-cockpit/` | Copilot CLI canvas: queue, grilling, specs, tickets, PR risk; filters open and recently closed work |
 | Project board | `.github/workflows/project-sync.yml`, `.github/factory/project-sync.cjs`, `scripts/setup-project.cjs` | Every issue and PR on the board, Status = factory stage (same rule as the cockpit), Kind, Risk |
 
 ## Setup

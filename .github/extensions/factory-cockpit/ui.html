@@ -49,16 +49,49 @@
   .icon-btn.spin svg { animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .subbar { display: flex; align-items: center; gap: 8px; padding: 0 14px 10px; }
+  .subbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 14px 8px; }
   .tabs { display: flex; gap: 2px; padding: 3px; background: var(--canvas); border: 1px solid var(--line-soft); border-radius: 9px; }
   .tab { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-weight: 500; cursor: pointer; white-space: nowrap; }
   .tab:hover { color: var(--fg); }
   .tab.active { background: var(--card); color: var(--fg); box-shadow: var(--shadow), 0 0 0 1px var(--line-soft); }
   .count { min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--line-soft); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
   .count.alert { background: var(--bad); color: #fff; }
-  .search { flex: 1; min-width: 80px; display: flex; align-items: center; gap: 6px; padding: 0 8px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--subtle); }
+  .search { position: relative; flex: 1 1 200px; min-width: 160px; display: flex; align-items: center; gap: 6px; padding: 0 8px; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--subtle); }
   .search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
   .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; }
+  .search .clear { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--subtle); cursor: pointer; }
+  .search .clear:hover { background: var(--hover); color: var(--fg); }
+  .suggest { position: absolute; top: calc(100% + 6px); left: -1px; right: -1px; z-index: 12; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-lg); animation: pop .12s ease-out; }
+  .suggest .head { padding: 4px 8px 2px; color: var(--subtle); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .suggest button { display: flex; width: 100%; align-items: center; gap: 10px; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+  .suggest button.sel, .suggest button:hover { background: var(--accent-soft); }
+  .suggest code { font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--accent); white-space: nowrap; }
+  .suggest span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seg { display: flex; gap: 2px; padding: 3px; background: var(--canvas); border: 1px solid var(--line-soft); border-radius: 9px; }
+  .seg button { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+  .seg button:hover { color: var(--fg); }
+  .seg button.active { background: var(--card); color: var(--fg); box-shadow: var(--shadow), 0 0 0 1px var(--line-soft); }
+  .seg button .n { color: var(--subtle); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .seg button:focus-visible, .facet:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .facets { display: flex; align-items: center; gap: 8px; padding: 0 14px 10px; }
+  .facets:empty { display: none; }
+  .facet-list { flex: 1; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .facet-list::-webkit-scrollbar { display: none; }
+  .facet-list.fade { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  .facet { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s, border-color .12s; }
+  .facet:hover:not(:disabled) { border-style: solid; color: var(--fg); background: var(--card); }
+  .facet .dot { width: 7px; height: 7px; }
+  .facet .n { color: var(--subtle); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .facet.on { border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .facet.on .n { color: inherit; }
+  .facet:disabled { opacity: .4; cursor: default; }
+  .result:empty { display: none; }
+  .result { flex: none; display: flex; align-items: center; gap: 8px; padding-left: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .linkbtn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 500; cursor: pointer; }
+  .linkbtn:hover { text-decoration: underline; }
+  .card.is-closed { background: color-mix(in srgb, var(--card) 70%, var(--canvas)); box-shadow: none; }
+  .card.is-closed .title { color: var(--muted); font-weight: 500; }
+  .badge.merged { background: color-mix(in srgb, var(--purple) 16%, transparent); color: var(--purple); }
   kbd { font: 10px ui-monospace, monospace; padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); }
 
   main { padding: 12px 14px 40px; max-width: 1100px; margin: 0 auto; }
@@ -160,7 +193,7 @@
   dialog p { margin: 0; color: var(--muted); }
   dialog .foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px 16px; }
 
-  @media (max-width: 520px) { .search kbd { display: none; } .section > summary .hint { display: none; } }
+  @media (max-width: 520px) { .search kbd { display: none; } .seg { flex: 1; } .seg button { flex: 1; justify-content: center; } .section > summary .hint { display: none; } }
   @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -186,8 +219,14 @@
       <button class="tab" data-tab="specs" role="tab">Specs <span class="count" id="c-specs">·</span></button>
       <button class="tab" data-tab="pulls" role="tab">PRs <span class="count" id="c-pulls">·</span></button>
     </nav>
-    <label class="search"><span id="search-icon"></span><input id="q" placeholder="Filter" autocomplete="off" /><kbd>/</kbd></label>
+    <label class="search"><span id="search-icon"></span><input id="q" placeholder="Filter: text, is:blocked, label:bug, risk:high…" autocomplete="off" spellcheck="false" aria-autocomplete="list" /><button id="q-clear" class="clear" type="button" title="Clear filters (Esc)" hidden></button><kbd>/</kbd><div id="suggest" class="suggest" role="listbox" hidden></div></label>
+    <div class="seg" role="radiogroup" aria-label="State">
+      <button data-view="open" role="radio">Open <span class="n" id="v-open"></span></button>
+      <button data-view="closed" role="radio">Closed <span class="n" id="v-closed"></span></button>
+      <button data-view="all" role="radio">All</button>
+    </div>
   </div>
+  <div class="facets" id="facets"></div>
 </header>
 <main id="main"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></main>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -202,6 +241,11 @@ const base = location.pathname.replace(/\/$/, "");
 let state = null;
 let tab = "queue";
 let query = "";
+let filters = [];
+const queries = { queue: "", specs: "", pulls: "" }; // each tab keeps its own filter
+const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+// open | closed | all: which items the tabs show. Closed items are the most recently closed ones.
+let view = ["open", "closed", "all"].includes(store.get("cockpit.view")) ? store.get("cockpit.view") : "open";
 const collapsed = new Set(["human"]);
 
 const ICON = {
@@ -221,6 +265,8 @@ const ICON = {
   check: '<svg width="12" height="12" viewBox="0 0 16 16" fill="var(--ok)"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>',
   x: '<svg width="12" height="12" viewBox="0 0 16 16" fill="var(--bad)"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>',
   alert: '<svg width="14" height="14" viewBox="0 0 16 16" fill="var(--bad)"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
+  close: '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>',
+  skip: '<svg width="14" height="14" viewBox="0 0 16 16" fill="var(--gray)"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm9.78-2.22-5.5 5.5a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l5.5-5.5a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"/></svg>',
   pending: '<svg width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4" fill="var(--warn)"/></svg>',
 };
 
@@ -360,7 +406,7 @@ function actionBar(number, actions) {
 }
 
 function card(item, { color, meta = [], right, actions = [], extra = [] }) {
-  return el("article", { class: "card", style: color ? `--c:${color}` : "" },
+  return el("article", { class: `card${item.state && item.state !== "open" ? " is-closed" : ""}`, style: color ? `--c:${color}` : "" },
     el("div", { class: "top" },
       el("a", { class: "title", href: item.url, target: "_blank", rel: "noopener" }, el("span", { class: "num", textContent: `#${item.number}` }), item.title),
       right || null),
@@ -386,7 +432,182 @@ function issueMeta(i) {
   return m;
 }
 
-const matches = (item) => !query || `#${item.number} ${item.title} ${(item.labels || []).join(" ")}`.toLowerCase().includes(query);
+// Filtering. The search box is the one source of truth: GitHub-style
+// qualifiers (is:, label:, risk:, base:, author:, assignee:), "-" to negate,
+// anything else matches the number, title and labels. Chips edit the same text.
+const isCopilot = (login) => /copilot/i.test(login || "");
+const IS = {
+  open: ["Open", (x) => x.state === "open"],
+  closed: ["Closed or merged", (x) => x.state !== "open"],
+  merged: ["Merged pull requests", (x) => x.state === "merged"],
+  unmerged: ["Pull requests closed without merging", (x) => x.kind === "pull" && x.state === "closed"],
+  done: ["Closed as completed, or merged", (x) => x.reason === "completed" || x.state === "merged"],
+  wontfix: ["Closed as not planned, or labelled wontfix", (x) => x.reason === "not_planned" || x.labels.includes("wontfix")],
+  agent: ["The cloud agent is on it, or opened it", (x) => x.labels.includes("status:in-progress") || (x.assignees || []).some(isCopilot) || isCopilot(x.author)],
+  blocked: ["Open and blocked by another issue", (x) => x.state === "open" && x.blockedBy > 0],
+  failed: ["The agent gave up, or a factory failure", (x) => x.labels.includes("agent:failed") || x.labels.includes("factory:failure")],
+  human: ["Waiting for a human decision", (x) => x.state === "open" && (x.stage === "human" || x.stage === "spec" || x.gate === "pending" || x.gate === "failure")],
+  spec: ["Specs", (x) => x.kind === "issue" && (x.subIssues > 0 || ["spec", "approved"].includes(x.stage) || x.labels.includes("spec"))],
+  draft: ["Draft pull requests", (x) => !!x.draft],
+};
+const QUALIFIERS = {
+  is: "State or condition",
+  label: "Has the label",
+  risk: "Risk gate class: low or high",
+  base: "Pull requests into a branch (prefix)",
+  author: "Opened by",
+  assignee: "Assigned to",
+};
+
+function parseQuery(text) {
+  const out = [];
+  for (const raw of text.match(/-?\w+:"[^"]*"?|-?"[^"]*"?|\S+/g) || []) {
+    const neg = raw.length > 1 && raw.startsWith("-");
+    const body = neg ? raw.slice(1) : raw;
+    const m = /^(\w+):(.*)$/.exec(body);
+    const unq = (v) => v.replace(/^"|"$/g, "").toLowerCase();
+    if (m && QUALIFIERS[m[1].toLowerCase()] && m[2]) out.push({ key: m[1].toLowerCase(), value: unq(m[2]), neg });
+    else out.push({ key: "text", value: unq(body), neg });
+  }
+  return out.filter((f) => f.value);
+}
+
+function test(x, { key, value }) {
+  switch (key) {
+    case "is": return !!IS[value]?.[1](x);
+    case "label": return x.labels.some((l) => l.toLowerCase() === value);
+    case "risk": return (x.risk || "") === value;
+    case "base": return (x.base || "").toLowerCase().startsWith(value);
+    case "author": return (x.author || "").toLowerCase().includes(value);
+    case "assignee": return (x.assignees || []).some((a) => a.toLowerCase().includes(value));
+    default: return `#${x.number} ${x.title} ${x.labels.join(" ")}`.toLowerCase().includes(value);
+  }
+}
+const matchesAll = (x, fs) => fs.every((f) => test(x, f) !== f.neg);
+const matches = (x) => matchesAll(x, filters);
+const filtering = () => filters.length > 0;
+
+// Items a tab shows under the Open / Closed / All switch, tagged with their kind.
+function scope(kind) {
+  const tag = (k) => (x) => ({ kind: k === "pulls" ? "pull" : "issue", ...x, state: x.state || "open" });
+  const open = view === "closed" ? [] : (state[kind] || []).map(tag(kind));
+  const closed = view === "open" ? [] : (state.closed?.[kind] || []).map(tag(kind)).sort((a, b) => (b.closedAt || "").localeCompare(a.closedAt || ""));
+  return { open, closed, all: [...open, ...closed] };
+}
+const TAB_KIND = { queue: "issues", specs: "specs", pulls: "pulls" };
+
+function setQuery(text, { focus = false } = {}) {
+  const q = $("#q");
+  if (q.value !== text) q.value = text;
+  query = text.trim();
+  queries[tab] = text;
+  filters = parseQuery(query);
+  $("#q-clear").hidden = !query;
+  if (focus) q.focus();
+  if (state) render();
+}
+
+function setView(v) {
+  view = v;
+  store.set("cockpit.view", v);
+  document.querySelectorAll(".seg button").forEach((b) => { const on = b.dataset.view === v; b.classList.toggle("active", on); b.setAttribute("aria-checked", on); });
+  if (state) render();
+}
+
+const tokenOf = (f) => `${f.neg ? "-" : ""}${f.key === "text" ? "" : `${f.key}:`}${/\s/.test(f.value) ? `"${f.value}"` : f.value}`;
+// A chip toggles its qualifier; adding it replaces the negated form, and vice versa.
+function toggleToken(token) {
+  const [f] = parseQuery(token);
+  const same = (g) => g.key === f.key && g.value === f.value;
+  const on = filters.some((g) => same(g) && g.neg === f.neg);
+  const rest = filters.filter((g) => !same(g)).map(tokenOf);
+  setQuery(on ? rest.join(" ") : [...rest, tokenOf(f)].join(" ") + " ");
+}
+
+// The quick filters above the list: each one toggles a qualifier in the search box.
+const FACETS = {
+  queue: [["is:human", "Needs a human", "var(--accent)"], ["is:agent", "Agent", "var(--warn)"], ["is:blocked", "Blocked", "var(--bad)"], ["is:failed", "Failed", "var(--bad)"], ["label:bug", "Bugs", "#d73a4a"], ["label:enhancement", "Enhancements", "#0ea5b7"], ["is:spec", "Specs", "var(--accent)"], ["is:done", "Done", "var(--purple)", "closed"], ["is:wontfix", "Won't fix", "var(--gray)", "closed"]],
+  specs: [["label:spec:approved", "Approved", "var(--ok)"], ["-label:spec:approved", "Awaiting approval", "var(--warn)"], ["label:lane:local", "Built locally", "var(--purple)"], ["is:done", "Shipped", "var(--purple)", "closed"]],
+  pulls: [["is:human", "Needs a human", "var(--bad)"], ["risk:low", "Low risk", "var(--ok)"], ["risk:high", "High risk", "var(--bad)"], ["base:factory/", "Into factory/*", "var(--teal)"], ["base:main", "Into main", "var(--accent)"], ["is:agent", "By the agent", "var(--warn)"], ["is:draft", "Drafts", "var(--gray)"], ["label:hold", "On hold", "var(--orange)"], ["is:merged", "Merged", "var(--purple)", "closed"], ["is:unmerged", "Closed unmerged", "var(--gray)", "closed"]],
+};
+
+function renderFacets() {
+  const box = $("#facets");
+  box.replaceChildren();
+  if (!state || state.error) return;
+  const items = scope(TAB_KIND[tab]).all;
+  const list = el("div", { class: "facet-list" });
+  box.append(list);
+  for (const [token, text, color, needs] of FACETS[tab]) {
+    if (needs === "closed" && view === "open") continue;
+    const [f] = parseQuery(token);
+    const on = filters.some((g) => g.key === f.key && g.value === f.value && g.neg === f.neg);
+    const others = filters.filter((g) => !(g.key === f.key && g.value === f.value));
+    const n = items.filter((x) => matchesAll(x, [...others, f])).length;
+    const b = el("button", { class: `facet${on ? " on" : ""}`, disabled: !on && !n, title: `${on ? "Remove" : "Add"} ${token}`, "aria-pressed": on },
+      el("span", { class: "dot", style: `--c:${color}` }), text, el("span", { class: "n", textContent: n }));
+    b.onclick = () => toggleToken(token);
+    list.append(b);
+  }
+  requestAnimationFrame(() => list.classList.toggle("fade", list.scrollWidth > list.clientWidth + 1));
+  const shown = items.filter(matches).length;
+  const res = el("div", { class: "result" });
+  if (filtering()) res.append(`${shown} of ${items.length}`, Object.assign(el("button", { class: "linkbtn", textContent: "Clear" }), { onclick: () => setQuery("") }));
+  else if (view !== "open" && state.closed) res.append(el("span", { title: `The ${state.closed.limit} most recently closed issues and pull requests`, textContent: `last ${state.closed.limit} closed` }));
+  box.append(res);
+}
+
+// Typeahead for qualifiers and their values, built from what is on screen.
+let suggestSel = 0;
+function suggestionPool() {
+  const all = [...scope("issues").all, ...scope("pulls").all];
+  const uniq = (xs) => [...new Set(xs.filter(Boolean))].sort();
+  const quote = (v) => (/\s/.test(v) ? `"${v}"` : v);
+  return [
+    ...Object.entries(IS).map(([k, [d]]) => [`is:${k}`, d]),
+    ...uniq(all.flatMap((x) => x.labels)).map((l) => [`label:${quote(l)}`, "Label"]),
+    ["risk:low", "Low risk"], ["risk:high", "High risk"],
+    ...uniq(all.map((x) => x.base)).map((b) => [`base:${b}`, "Base branch"]),
+    ...uniq(all.map((x) => x.author)).map((a) => [`author:${a}`, "Author"]),
+    ...uniq(all.flatMap((x) => x.assignees || [])).map((a) => [`assignee:${a}`, "Assignee"]),
+  ];
+}
+
+function renderSuggest() {
+  const box = $("#suggest");
+  const q = $("#q");
+  const before = q.value.slice(0, q.selectionStart ?? q.value.length);
+  const word = /(\S*)$/.exec(before)[1];
+  const neg = word.startsWith("-") ? "-" : "";
+  const typed = word.slice(neg.length).toLowerCase();
+  let list;
+  if (!typed) list = Object.entries(QUALIFIERS).map(([k, d]) => [`${k}:`, d]);
+  else if (!typed.includes(":")) list = [...Object.entries(QUALIFIERS).map(([k, d]) => [`${k}:`, d]), ...suggestionPool()].filter(([t]) => t.startsWith(typed));
+  else list = suggestionPool().filter(([t]) => t.toLowerCase().startsWith(typed) && t.toLowerCase() !== typed);
+  list = list.slice(0, 8);
+  if (document.activeElement !== q || !list.length) { box.hidden = true; return; }
+  suggestSel = Math.min(suggestSel, list.length - 1);
+  box.replaceChildren(el("div", { class: "head", textContent: typed ? "Suggestions" : "Filter by" }), ...list.map(([t, d], i) => {
+    const b = el("button", { type: "button", class: i === suggestSel ? "sel" : "", role: "option" }, el("code", { textContent: neg + t }), el("span", { textContent: d }));
+    b.onmousedown = (e) => { e.preventDefault(); accept(neg + t); };
+    return b;
+  }));
+  box.hidden = false;
+  box.list = list.map(([t]) => neg + t);
+}
+
+function accept(token) {
+  const q = $("#q");
+  const at = q.selectionStart ?? q.value.length;
+  const before = q.value.slice(0, at).replace(/\S*$/, "");
+  const after = q.value.slice(at).replace(/^\S*/, "");
+  const glue = token.endsWith(":") ? "" : " ";
+  setQuery(before + token + glue + after.trimStart());
+  const pos = (before + token + glue).length;
+  q.setSelectionRange(pos, pos);
+  suggestSel = 0;
+  renderSuggest();
+}
 
 function section(key, titleText, hint, color, count, body) {
   const d = el("details", { class: "section", id: `s-${key}`, open: !collapsed.has(key) });
@@ -418,44 +639,80 @@ function runCard(r) {
 
 const attentionCount = () => state.issues.filter((i) => i.stage === "attention").length + (state.failedRuns || []).length;
 
-function renderAttention(main) {
-  const issues = state.issues.filter((i) => i.stage === "attention" && matches(i));
-  const runs = (state.failedRuns || []).filter((r) => !query || `${r.workflow} ${r.title}`.toLowerCase().includes(query));
-  if (!issues.length && !runs.length) return;
+// Failed runs have no labels or state: only free text filters them, any qualifier hides them.
+const visibleRuns = () => (state.failedRuns || []).filter((r) => filters.every((f) => f.key === "text" && `${r.workflow} ${r.title}`.toLowerCase().includes(f.value) !== f.neg));
+
+function renderAttention(main, open) {
+  const issues = open.filter((i) => i.stage === "attention" && matches(i));
+  const runs = visibleRuns();
+  if (!issues.length && !runs.length) return 0;
   const grid = el("div", { class: "grid" });
   for (const r of runs) grid.append(runCard(r));
   for (const i of issues) grid.append(card(i, { color: ATTENTION.c, meta: issueMeta(i), actions: attentionActions(i) }));
   main.append(section(ATTENTION.key, ATTENTION.title, ATTENTION.hint, ATTENTION.c, issues.length + runs.length, grid));
+  return issues.length + runs.length;
+}
+
+const closedLabel = (x) => x.state === "merged" ? "merged" : x.kind === "pull" ? "closed" : x.reason === "not_planned" ? "not planned" : x.reason === "duplicate" ? "duplicate" : "done";
+const isDone = (x) => ["merged", "done"].includes(closedLabel(x));
+const closedBadge = (x) => badge(closedLabel(x), isDone(x) ? "merged" : "neutral", isDone(x) ? "done" : "skip");
+const closedAt = (x) => el("span", { class: "item", title: x.closedAt || "", textContent: `${x.state === "merged" ? "merged" : "closed"} ${ago(x.closedAt)}` });
+
+function closedIssueCard(i) {
+  const meta = [...i.labels.filter((l) => SHOWN_LABELS.includes(l)).map(label), closedAt(i)];
+  if (i.subIssues) meta.push(metaItem("branch", `${i.subIssues} tickets`));
+  const av = avatars(i.assignees);
+  if (av) meta.push(av);
+  return card(i, { color: isDone(i) ? "var(--purple)" : "var(--gray)", right: closedBadge(i), meta });
+}
+
+// Closed items in two sections: what shipped, and what was dropped.
+function renderClosed(main, items, cardOf, [doneTitle, doneHint], [dropTitle, dropHint]) {
+  let shown = 0;
+  for (const [key, title, hint, color, keep] of [["done", doneTitle, doneHint, "var(--purple)", isDone], ["dropped", dropTitle, dropHint, "var(--gray)", (x) => !isDone(x)]]) {
+    const list = items.filter((x) => keep(x) && matches(x));
+    if (!list.length) continue;
+    shown += list.length;
+    const grid = el("div", { class: "grid" });
+    for (const x of list) grid.append(cardOf(x));
+    main.append(section(`closed-${tab}-${key}`, title, hint, color, list.length, grid));
+  }
+  return shown;
 }
 
 function renderQueue(main) {
-  const strip = el("div", { class: "pipeline" });
-  const needs = attentionCount();
-  if (needs) {
-    const chip = el("button", { class: "stage-chip", style: `--c:${ATTENTION.c}`, title: ATTENTION.hint }, el("span", { class: "dot" }), el("b", { textContent: needs }), ATTENTION.title);
-    chip.onclick = () => { const t = document.getElementById("s-attention"); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
-    strip.append(chip);
-  }
-  for (const s of STAGES) {
-    const n = state.issues.filter((i) => i.stage === s.key).length;
-    const chip = el("button", { class: `stage-chip${n ? "" : " zero"}`, style: `--c:${s.c}`, title: s.hint },
-      el("span", { class: "dot" }), el("b", { textContent: n }), s.title);
-    chip.onclick = () => { collapsed.delete(s.key); const t = document.getElementById(`s-${s.key}`); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
-    strip.append(chip);
-  }
-  main.append(strip);
-  renderAttention(main);
+  const { open, closed, all } = scope("issues");
+  if (!all.length && !(view !== "closed" && visibleRuns().length)) return main.append(hero("🌱", view === "closed" ? "Nothing closed yet" : "The queue is empty", view === "closed" ? "Closed issues show up here." : "New issues are triaged and land here."));
   let shown = 0;
-  for (const s of STAGES) {
-    const items = state.issues.filter((i) => i.stage === s.key && matches(i));
-    if (!items.length && (query || ["human", "approved"].includes(s.key))) continue;
-    shown += items.length;
-    const grid = el("div", { class: "grid" });
-    if (!items.length) grid.append(el("div", { class: "empty", textContent: "Nothing here" }));
-    for (const i of items) grid.append(card(i, { color: s.c, meta: issueMeta(i), actions: ISSUE_ACTIONS[s.key] || [] }));
-    main.append(section(s.key, s.title, s.hint, s.c, items.length, grid));
+  if (view !== "closed") {
+    const strip = el("div", { class: "pipeline" });
+    const needs = open.filter((i) => i.stage === "attention" && matches(i)).length + visibleRuns().length;
+    if (needs) {
+      const chip = el("button", { class: "stage-chip", style: `--c:${ATTENTION.c}`, title: ATTENTION.hint }, el("span", { class: "dot" }), el("b", { textContent: needs }), ATTENTION.title);
+      chip.onclick = () => { const t = document.getElementById("s-attention"); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
+      strip.append(chip);
+    }
+    for (const s of STAGES) {
+      const n = open.filter((i) => i.stage === s.key && matches(i)).length;
+      const chip = el("button", { class: `stage-chip${n ? "" : " zero"}`, style: `--c:${s.c}`, title: s.hint },
+        el("span", { class: "dot" }), el("b", { textContent: n }), s.title);
+      chip.onclick = () => { collapsed.delete(s.key); const t = document.getElementById(`s-${s.key}`); if (t) { t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); } };
+      strip.append(chip);
+    }
+    if (!filtering() || open.some((i) => matches(i)) || needs) main.append(strip);
+    shown += renderAttention(main, open);
+    for (const s of STAGES) {
+      const items = open.filter((i) => i.stage === s.key && matches(i));
+      if (!items.length && (filtering() || view === "all" || ["human", "approved"].includes(s.key))) continue;
+      shown += items.length;
+      const grid = el("div", { class: "grid" });
+      if (!items.length) grid.append(el("div", { class: "empty", textContent: "Nothing here" }));
+      for (const i of items) grid.append(card(i, { color: s.c, meta: issueMeta(i), actions: ISSUE_ACTIONS[s.key] || [] }));
+      main.append(section(s.key, s.title, s.hint, s.c, items.length, grid));
+    }
   }
-  if (query && !shown) main.append(noMatch());
+  if (view !== "open") shown += renderClosed(main, closed, closedIssueCard, ["Done", "Closed as completed"], ["Not planned", "Closed as not planned or duplicate"]);
+  if (!shown) main.append(noMatch());
 }
 
 function ticketIcon(t) {
@@ -467,11 +724,13 @@ function ticketIcon(t) {
 }
 
 function renderSpecs(main) {
-  const specs = state.specs.filter(matches);
-  if (!state.specs.length) return main.append(hero("📐", "No specs yet", "Grill a big issue in the Queue, then comment /spec on it."));
+  const { all } = scope("specs");
+  const specs = all.filter(matches);
+  if (!all.length) return main.append(view === "closed" ? hero("📦", "No closed specs yet", "A spec closes when its integration pull request merges.") : hero("📐", "No specs yet", "Grill a big issue in the Queue, then comment /spec on it."));
   if (!specs.length) return main.append(noMatch());
   const grid = el("div", { class: "grid" });
   for (const s of specs) {
+    const isOpen = s.state === "open";
     const total = s.tickets.length;
     const done = s.tickets.filter((t) => t.state === "closed").length;
     const busy = s.tickets.filter((t) => t.state !== "closed" && t.labels.includes("status:in-progress")).length;
@@ -479,8 +738,9 @@ function renderSpecs(main) {
     const approved = s.stage === "approved";
     const meta = [metaItem("branch", el("span", { class: "mono", textContent: local ? `local/spec-${s.number}` : s.branch }))];
     if (local) meta.push(label("lane:local"));
-    const pr = state.pulls.find((p) => p.head === s.branch || p.head === `local/spec-${s.number}`);
+    const pr = [...state.pulls, ...(state.closed?.pulls || [])].find((p) => p.head === s.branch || p.head === `local/spec-${s.number}`);
     if (pr) meta.push(el("a", { href: pr.url, target: "_blank", rel: "noopener", class: "item", textContent: `PR #${pr.number}` }));
+    if (!isOpen) meta.push(closedAt(s));
     const extra = [];
     if (total) {
       const pct = (n) => `${(100 * n) / total}%`;
@@ -496,10 +756,10 @@ function renderSpecs(main) {
       }
       extra.push(ul);
     }
-    const actions = s.stage === "spec" ? ISSUE_ACTIONS.spec : approved && !local ? [["build-local", "Build here", "primary"]] : [];
+    const actions = !isOpen ? [] : s.stage === "spec" ? ISSUE_ACTIONS.spec : approved && !local ? [["build-local", "Build here", "primary"]] : [];
     grid.append(card(s, {
-      color: approved ? "var(--ok)" : "var(--accent)",
-      right: badge(approved ? "approved" : "awaiting approval", approved ? "ok" : "warn"),
+      color: !isOpen ? (isDone(s) ? "var(--purple)" : "var(--gray)") : approved ? "var(--ok)" : "var(--accent)",
+      right: !isOpen ? badge(isDone(s) ? "shipped" : closedLabel(s), isDone(s) ? "merged" : "neutral", isDone(s) ? "done" : "skip") : badge(approved ? "approved" : "awaiting approval", approved ? "ok" : "warn"),
       meta, extra, actions,
     }));
   }
@@ -508,39 +768,49 @@ function renderSpecs(main) {
 
 function checkIcon(st) { return st === "success" ? "check" : st === "failure" || st === "cancelled" || st === "timed_out" ? "x" : "pending"; }
 
+function prMeta(p) {
+  const meta = [
+    metaItem("branch", el("span", { class: "mono", textContent: p.base })),
+    el("span", { class: "item diff", title: `${p.size.files} files` }, el("span", { class: "add", textContent: `+${p.size.additions}` }), el("span", { class: "del", textContent: `−${p.size.deletions}` }), `· ${p.size.files} files`),
+    ...p.labels.filter((l) => SHOWN_LABELS.includes(l)).map(label),
+  ];
+  if (p.state !== "open") meta.push(closedAt(p));
+  if (p.draft && p.state === "open") meta.push(badge("draft"));
+  if (p.labels.includes("hold") && p.state === "open") meta.push(badge("on hold", "bad"));
+  const av = avatars(p.author ? [p.author] : []);
+  if (av) meta.push(av);
+  return meta;
+}
+const riskBadge = (p) => (p.risk ? badge(`${p.risk} risk`, p.risk === "low" ? "ok" : "bad") : badge("unclassified"));
+
+function closedPullCard(p) {
+  return card(p, { color: isDone(p) ? "var(--purple)" : "var(--gray)", right: closedBadge(p), meta: [riskBadge(p), ...prMeta(p)] });
+}
+
 function renderPulls(main) {
-  if (!state.pulls.length) return main.append(hero("🎉", "No open pull requests", "Everything that was built has merged."));
+  const { open, closed, all } = scope("pulls");
+  if (!all.length) return main.append(view === "closed" ? hero("🗂️", "No closed pull requests", "Merged and closed pull requests show up here.") : hero("🎉", "No open pull requests", "Everything that was built has merged."));
   const groups = [
     ["human", "Needs a human", "Approve the head or hold it", "var(--bad)", (p) => p.gate === "pending" || p.gate === "failure"],
     ["auto", "Merging on its own", "Low risk, waiting for checks", "var(--ok)", (p) => p.gate === "success"],
     ["agent", "Agent still working", "Draft or not classified yet", "var(--warn)", (p) => !p.gate],
   ];
   let shown = 0;
-  for (const [key, title, hint, color, test] of groups) {
-    const items = state.pulls.filter((p) => test(p) && matches(p));
-    if (!items.length && query) continue;
+  for (const [key, title, hint, color, keep] of view === "closed" ? [] : groups) {
+    const items = open.filter((p) => keep(p) && matches(p));
+    if (!items.length && (filtering() || view === "all")) continue;
     shown += items.length;
     const grid = el("div", { class: "grid" });
     if (!items.length) grid.append(el("div", { class: "empty", textContent: "Nothing here" }));
     for (const p of items) {
-      const risk = p.risk ? badge(`${p.risk} risk`, p.risk === "low" ? "ok" : "bad") : badge("unclassified");
-      const meta = [
-        metaItem("branch", el("span", { class: "mono", textContent: p.base })),
-        el("span", { class: "item diff", title: `${p.size.files} files` }, el("span", { class: "add", textContent: `+${p.size.additions}` }), el("span", { class: "del", textContent: `−${p.size.deletions}` }), `· ${p.size.files} files`),
-        ...p.labels.filter((l) => SHOWN_LABELS.includes(l)).map(label),
-      ];
-      if (p.draft) meta.push(badge("draft"));
-      if (p.labels.includes("hold")) meta.push(badge("on hold", "bad"));
-      const av = avatars(p.author ? [p.author] : []);
-      if (av) meta.push(av);
       const extra = [];
       const checks = p.checks.filter((c) => c.name);
       if (checks.length) extra.push(el("div", { class: "checks" }, ...checks.map((c) => el("span", { title: `${c.name}: ${c.state || "pending"}` }, el("span", { html: ICON[checkIcon(c.state)], style: "display:inline-flex" }), c.name))));
       if (p.gateText) extra.push(el("div", { class: "gate-note", textContent: p.gateText }));
       grid.append(card(p, {
         color,
-        right: risk,
-        meta, extra,
+        right: riskBadge(p),
+        meta: prMeta(p), extra,
         actions: [
           ...(p.gate === "pending" ? [["human-approve", "Approve head", "success"]] : []),
           p.labels.includes("hold") ? ["unhold", "Release hold"] : ["hold", "Hold", p.gate === "pending" ? "more" : undefined],
@@ -550,11 +820,15 @@ function renderPulls(main) {
     }
     main.append(section(`pr-${key}`, title, hint, color, items.length, grid));
   }
-  if (query && !shown) main.append(noMatch());
+  if (view !== "open") shown += renderClosed(main, closed, closedPullCard, ["Merged", "Into a spec branch or the default branch"], ["Closed without merging", "Abandoned or replaced"]);
+  if (!shown && (filtering() || view === "closed")) main.append(noMatch());
 }
 
 const hero = (emoji, title, text) => el("div", { class: "hero-empty" }, el("div", { class: "big", textContent: emoji }), el("strong", { textContent: title }), el("div", { textContent: text }));
-const noMatch = () => el("div", { class: "empty", textContent: `Nothing matches "${query}"` });
+const noMatch = () => el("div", { class: "empty" },
+  el("span", { textContent: filtering() ? `Nothing ${view === "all" ? "" : `${view} `}matches ${query}.` : `Nothing ${view} here.` }),
+  filtering() ? Object.assign(el("button", { class: "linkbtn", textContent: "Clear filters" }), { onclick: () => setQuery("") }) : null,
+  view !== "all" ? Object.assign(el("button", { class: "linkbtn", textContent: `Search ${view === "open" ? "closed" : "open"} too` }), { onclick: () => setView("all") }) : null);
 
 function renderHeader() {
   $("#repo").textContent = state.repo || "…";
@@ -562,15 +836,18 @@ function renderHeader() {
   if (state.projectUrl) { $("#project").href = state.projectUrl; $("#project").hidden = false; }
   const cq = $("#c-queue");
   const needs = state.issues ? attentionCount() : 0;
-  cq.textContent = state.issues?.length ?? "·";
+  cq.textContent = state.issues ? scope("issues").all.length : "·";
   cq.classList.toggle("alert", needs > 0);
   cq.title = needs ? `${needs} need attention` : "";
-  $("#c-specs").textContent = state.specs?.length ?? "·";
+  $("#c-specs").textContent = state.specs ? scope("specs").all.length : "·";
   const human = (state.pulls || []).filter((p) => p.gate === "pending" || p.gate === "failure").length;
   const cp = $("#c-pulls");
-  cp.textContent = state.pulls?.length ?? "·";
+  cp.textContent = state.pulls ? scope("pulls").all.length : "·";
   cp.classList.toggle("alert", human > 0);
   cp.title = human ? `${human} need a human` : "";
+  const kind = TAB_KIND[tab];
+  $("#v-open").textContent = state[kind]?.length ?? "";
+  $("#v-closed").textContent = state.closed ? `${state.closed[kind].length}${state.closed[kind].length >= state.closed.limit ? "+" : ""}` : "–";
   tick();
 }
 
@@ -590,6 +867,7 @@ function render() {
     return main.append(el("div", { class: "error" }, el("strong", { textContent: "Could not load the factory." }), el("span", { textContent: state.error })));
   }
   renderHeader();
+  renderFacets();
   ({ queue: renderQueue, specs: renderSpecs, pulls: renderPulls })[tab](main);
 }
 
@@ -604,7 +882,7 @@ async function load() {
 function setTab(name) {
   tab = name;
   document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === name));
-  if (state) render();
+  setQuery(queries[name]);
   window.scrollTo({ top: 0 });
 }
 
@@ -616,20 +894,44 @@ $("#search-icon").style.display = "inline-flex";
 document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
 $("#refresh").onclick = load;
 $("#dispatch").onclick = (e) => act("dispatch", 0, e.currentTarget);
-$("#q").addEventListener("input", (e) => { query = e.target.value.trim().toLowerCase(); if (state) render(); });
+$("#q-clear").innerHTML = ICON.close;
+$("#q-clear").onclick = () => setQuery("", { focus: true });
+document.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => setView(b.dataset.view)));
+const q = $("#q");
+q.addEventListener("input", () => { suggestSel = 0; setQuery(q.value); renderSuggest(); });
+q.addEventListener("focus", renderSuggest);
+q.addEventListener("click", renderSuggest);
+q.addEventListener("blur", () => ($("#suggest").hidden = true));
+q.addEventListener("keydown", (e) => {
+  const box = $("#suggest");
+  if (box.hidden || !box.list?.length) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); suggestSel = (suggestSel + (e.key === "ArrowDown" ? 1 : -1) + box.list.length) % box.list.length; renderSuggest(); }
+  else if (e.key === "Tab" || (e.key === "Enter" && /\S$/.test(q.value.slice(0, q.selectionStart)))) { e.preventDefault(); accept(box.list[suggestSel]); }
+  else if (e.key === "Escape" && !box.hidden) { e.stopPropagation(); box.hidden = true; }
+});
 document.addEventListener("click", () => closeMenus());
 document.addEventListener("keydown", (e) => {
   const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName);
-  if (e.key === "Escape") { closeMenus(); if (typing) { $("#q").value = ""; query = ""; $("#q").blur(); if (state) render(); } }
+  if (e.key === "Escape") { closeMenus(); if (typing) { setQuery(""); $("#q").blur(); } }
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === "/") { e.preventDefault(); $("#q").focus(); }
   if (e.key === "r") load();
   if (e.key === "1") setTab("queue");
   if (e.key === "2") setTab("specs");
   if (e.key === "3") setTab("pulls");
+  if (e.key === "o") setView("open");
+  if (e.key === "c") setView("closed");
+  if (e.key === "a") setView("all");
 });
 const events = new EventSource(`${base}/api/events`);
-events.onmessage = (e) => { const m = JSON.parse(e.data); if (m.tab) setTab(m.tab); if (m.refresh) load(); };
+events.onmessage = (e) => {
+  const m = JSON.parse(e.data);
+  if (m.tab) setTab(m.tab);
+  if (m.view) setView(m.view);
+  if (typeof m.filter === "string") setQuery(m.filter);
+  if (m.refresh) load();
+};
+setView(view);
 load();
 setInterval(load, 60000);
 setInterval(tick, 15000);

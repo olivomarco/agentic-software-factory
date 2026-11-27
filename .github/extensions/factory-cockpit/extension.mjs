@@ -159,6 +159,10 @@ function summary(state) {
       tickets: s.tickets.map((t) => `#${t.number} ${t.state}${t.blockedBy ? ` blocked by ${t.blockedBy}` : ""}`),
     })),
     pulls: state.pulls.map((p) => ({ number: p.number, title: p.title, base: p.base, risk: p.risk, gate: p.gate, gateText: p.gateText, draft: p.draft })),
+    recentlyClosed: state.closed && {
+      issues: state.closed.issues.map((i) => `#${i.number} ${i.title} (${i.reason || "closed"})`),
+      pulls: state.closed.pulls.map((p) => `#${p.number} ${p.title} (${p.state} into ${p.base})`),
+    },
   };
 }
 
@@ -180,17 +184,26 @@ const session = await joinSession({
           {
             name: "get_state",
             description:
-              "Return the factory state shown in the cockpit: open issues by stage (attention = agent:failed or factory:failure), failed workflow runs, specs with ticket trees, PRs with risk and gate status.",
+              "Return the factory state shown in the cockpit: open issues by stage (attention = agent:failed or factory:failure), failed workflow runs, specs with ticket trees, PRs with risk and gate status, and the most recently closed issues and pull requests.",
             handler: async (ctx) => summary(await stateFor(instanceOf(ctx), true)),
           },
           {
             name: "show",
-            description: "Switch the cockpit to a tab and refresh it.",
-            inputSchema: { type: "object", properties: { tab: { type: "string", enum: ["queue", "specs", "pulls"] } } },
+            description:
+              "Switch the cockpit to a tab, choose open, closed or all items, and set its filter, then refresh it. The filter takes free text and GitHub-style qualifiers: is:open|closed|merged|unmerged|done|wontfix|agent|blocked|failed|human|spec|draft, label:NAME, risk:low|high, base:BRANCH, author:LOGIN, assignee:LOGIN; prefix with - to negate. An empty filter clears it.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                tab: { type: "string", enum: ["queue", "specs", "pulls"] },
+                state: { type: "string", enum: ["open", "closed", "all"] },
+                filter: { type: "string" },
+              },
+            },
             handler: async (ctx) => {
               const entry = instanceOf(ctx);
               entry.cache = null;
-              push(entry, { tab: ctx.input?.tab, refresh: true });
+              const { tab, state, filter } = ctx.input || {};
+              push(entry, { tab, view: state, filter, refresh: true });
               return { ok: true };
             },
           },
