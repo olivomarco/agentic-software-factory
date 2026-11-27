@@ -8,8 +8,9 @@ at **risky** changes; they no longer review every diff.
 Everything runs on GitHub primitives: gh-aw agentic workflows, native
 sub-issues and blocked-by dependencies, the Copilot cloud agent, Copilot code
 review (with a repository skill), rulesets, environments, Codespaces and a
-Project board. Two deterministic
-workflows (`dispatch.yml`, `risk-gate.yml`) do the bookkeeping without a model.
+Project board. Three deterministic
+workflows (`dispatch.yml`, `risk-gate.yml`, `project-sync.yml`) do the
+bookkeeping without a model.
 
 ```text
 issue opened
@@ -109,6 +110,7 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 | Skill config | `docs/agents/*.md` | Issue tracker, label vocabulary, domain docs |
 | Rulesets | `docs/ruleset-main.json`, `docs/ruleset-factory.json` | Applied by the setup script |
 | Cockpit | `.github/extensions/factory-cockpit/` | Copilot CLI canvas: queue, grilling, specs, tickets, PR risk |
+| Project board | `.github/workflows/project-sync.yml`, `.github/factory/project-sync.cjs`, `scripts/setup-project.cjs` | Every issue and PR on the board, Status = factory stage (same rule as the cockpit), Kind, Risk |
 
 ## Setup
 
@@ -118,22 +120,22 @@ tests next to them (`policy.test.cjs`, run by the `factory` CI job).
 
    ```bash
    gh auth refresh -s project   # only for --project
-   GH_AW_AGENT_TOKEN=<token> scripts/setup-repo.sh --owner @you --project "Software factory"
+   GH_AW_AGENT_TOKEN=<token> FACTORY_PROJECT_TOKEN=<classic token> \
+     scripts/setup-repo.sh --owner @you --project "Software factory"
    ```
 
    It creates the labels, enables squash merge and branch deletion, creates the
-   `copilot-agent` environment (default branch only) with the token, applies
-   both rulesets and creates and links the Project board.
+   `copilot-agent` environment (default branch only) with both tokens, applies
+   both rulesets and creates, links and shapes the Project board (see "The
+   Project board" below).
 4. Settings > Copilot: enable the cloud agent and turn off **Require approval
    for workflow runs** (otherwise CI never runs on the agent's PRs and nothing
    merges). See "Security" below for why this is acceptable.
-5. In the Project's Workflows tab, turn on **Auto-add to project** for the
-   repository; the built-in workflows then move items on close and merge.
-6. Settings > Copilot > Code review: set the review effort to **Adaptive**.
+5. Settings > Copilot > Code review: set the review effort to **Adaptive**.
    Open a test PR and check that the `[Spec]` comments quote the ticket; if
    they do not, add the GitHub MCP server under Copilot > MCP servers so the
    review can read issues (it is shared with the cloud agent).
-7. Settings > Codespaces: add a **prebuild** for the default branch with
+6. Settings > Codespaces: add a **prebuild** for the default branch with
    `.devcontainer/devcontainer.json`, so review codespaces open in seconds, and
    set an idle timeout and a machine-type limit in your codespaces policies.
 
@@ -146,6 +148,32 @@ store it only in the `copilot-agent` environment. `dispatch.yml` uses it to
 assign Copilot, create `factory/spec-*` branches and open integration PRs (so
 CI runs on them; events caused by `GITHUB_TOKEN` start no workflows). The
 gh-aw workflows themselves bill through `copilot-requests: write`.
+
+### The Project board
+
+`--project` gives the board the factory's shape (from `PROJECT_FIELDS` in
+`policy.cjs`, applied by `scripts/setup-project.cjs`):
+
+- **Status** options become the stages: Needs attention, Triage, Needs info,
+  Spec, Spec approved, Ready for agent, In progress, In review, Needs human,
+  Done, Won't fix. They follow the same rule as the cockpit's queue.
+- **Kind** (Spec, Ticket, Bug, Enhancement, Pull request, Report, Other) and
+  **Risk** (Low, High, from the risk gate's labels).
+- Views: **Factory** (board by Status), **Needs a human**, **Specs** (with
+  parent issue and sub-issue progress) and **Pull requests**.
+
+`project-sync.yml` keeps it current: it adds every issue and pull request and
+sets the three fields from labels and state, after every issue event, after
+each factory workflow finishes, and hourly. It only writes what changed. Run
+`gh workflow run project-sync.yml -f backfill=true` to take the whole history.
+The project's built-in workflows (auto-add, item closed) are not needed; leave
+them off so they do not fight the sync over Status.
+
+The sync needs `FACTORY_PROJECT_TOKEN` in the `copilot-agent` environment: a
+**classic** token with the `project` scope (add `repo` for a private
+repository). Fine-grained tokens and GitHub Apps cannot write user-owned
+projects; for an organization project, a GitHub App token with Projects
+read/write works too.
 
 ### Tunables (repository variables)
 

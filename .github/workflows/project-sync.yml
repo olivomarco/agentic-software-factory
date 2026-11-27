@@ -1,0 +1,52 @@
+name: Project sync
+
+# Keeps the Project board (vars.FACTORY_PROJECT_URL) in step with the factory:
+# adds every issue and pull request and sets Status (the factory stage), Kind
+# and Risk from labels and state. Deterministic: no model runs here.
+# Labels added by gh-aw and the gates use GITHUB_TOKEN and start no workflows,
+# so the sync also runs after each factory workflow finishes, and hourly.
+# Run it by hand with backfill to take the whole history.
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled]
+  workflow_run:
+    workflows: [Dispatch, Risk gate, Labeler, "Triage the issue", "Write the spec", "Plan the approved spec"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: Sync every issue and pull request, not only open and recent ones
+        type: boolean
+        default: false
+  schedule:
+    - cron: "23 * * * *"
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: factory-project-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: vars.FACTORY_PROJECT_URL != ''
+    runs-on: ubuntu-latest
+    # Holds FACTORY_PROJECT_TOKEN; usable from the default branch only.
+    environment: copilot-agent
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/factory
+      - uses: actions/github-script@v9
+        env:
+          PROJECT_URL: ${{ vars.FACTORY_PROJECT_URL }}
+          PROJECT_TOKEN: ${{ secrets.FACTORY_PROJECT_TOKEN }}
+          BACKFILL: ${{ inputs.backfill || 'false' }}
+        with:
+          script: |
+            if (!process.env.PROJECT_TOKEN) return core.setFailed("FACTORY_PROJECT_TOKEN is missing in the copilot-agent environment (classic token, project scope). See docs/factory.md.");
+            const sync = require(`${process.env.GITHUB_WORKSPACE}/.github/factory/project-sync.cjs`);
+            await sync({ github, project: getOctokit(process.env.PROJECT_TOKEN), context, core });

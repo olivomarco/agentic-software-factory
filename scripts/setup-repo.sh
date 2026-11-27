@@ -13,12 +13,15 @@
 #                 branch past its ruleset (pull requests only, never direct
 #                 pushes). For solo repositories, where the only code owner
 #                 cannot approve their own pull request. Re-run without it to remove.
-#   --project     create (or reuse) a user/org Project with this title and link it
-#                 (needs the 'project' scope: gh auth refresh -s project)
+#   --project     create (or reuse) a user/org Project with this title, link it, give
+#                 it the factory's Status stages, Kind and Risk fields and views, and
+#                 backfill it (needs the 'project' scope: gh auth refresh -s project)
 # Environment:
 #   GH_AW_AGENT_TOKEN  if set, stored as a secret of the copilot-agent environment
 #                      (a token allowed to assign the Copilot cloud agent)
-# Needs: gh (logged in, admin on the repository), python3.
+#   FACTORY_PROJECT_TOKEN  if set, stored as a secret of the copilot-agent environment
+#                      (classic token with the project scope; project-sync.yml writes the board)
+# Needs: gh (logged in, admin on the repository), python3, node (for --project).
 set -euo pipefail
 
 repo=""
@@ -33,7 +36,7 @@ while [ $# -gt 0 ]; do
     --no-ruleset) ruleset=false; shift ;;
     --admin-bypass) admin_bypass=true; shift ;;
     --project) project="$2"; shift 2 ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -191,7 +194,20 @@ if [ -n "$project" ]; then
   gh variable set FACTORY_PROJECT_URL --repo "$repo" \
     --body "$(gh project view "$number" --owner "$powner" --format json --jq .url)" >/dev/null
   echo "  '$project' (#$number) linked; URL stored in the FACTORY_PROJECT_URL variable"
-  echo "  In the project's Workflows tab, turn on 'Auto-add to project' for this repository."
+  node "$root/scripts/setup-project.cjs" "$powner" "$number"
+  if [ -n "${FACTORY_PROJECT_TOKEN:-}" ]; then
+    gh secret set FACTORY_PROJECT_TOKEN --repo "$repo" --env "$env_name" --body "$FACTORY_PROJECT_TOKEN" >/dev/null
+    echo "  FACTORY_PROJECT_TOKEN stored in $env_name"
+  fi
+  if ! gh secret list --repo "$repo" --env "$env_name" --json name --jq '.[].name' | grep -qx FACTORY_PROJECT_TOKEN; then
+    echo "  FACTORY_PROJECT_TOKEN missing: the board stays as it is until you create a classic"
+    echo "  token with the 'project' scope ('repo' too for a private repository) and run"
+    echo "    gh secret set FACTORY_PROJECT_TOKEN --repo $repo --env $env_name"
+  elif gh workflow run project-sync.yml --repo "$repo" -f backfill=true >/dev/null 2>&1; then
+    echo "  backfill started (Project sync workflow)"
+  else
+    echo "  run 'gh workflow run project-sync.yml --repo $repo -f backfill=true' once the workflow is on the default branch"
+  fi
 fi
 
 cat <<EOF

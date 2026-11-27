@@ -2,6 +2,10 @@
 // acts with the signed-in user's own identity and permissions.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createRequire } from "node:module";
+
+// Shared with the dispatcher and the project sync, so the queue and the board agree.
+const { issueStage: stage } = createRequire(import.meta.url)("../../factory/policy.cjs");
 
 const run = promisify(execFile);
 
@@ -29,19 +33,6 @@ export async function detectRepo(cwd) {
 }
 
 const names = (labels) => labels.map((l) => l.name);
-
-function stage(labels) {
-  const has = (n) => labels.includes(n);
-  if (has("agent:failed") || has("factory:failure")) return "attention";
-  if (has("status:in-progress")) return "in-progress";
-  if (has("ready-for-agent")) return "ready";
-  if (has("spec:approved")) return "approved";
-  if (has("spec")) return "spec";
-  if (has("needs-info")) return "needs-info";
-  if (has("ready-for-human")) return "human";
-  if (has("wontfix")) return "wontfix";
-  return "triage";
-}
 
 // "Risk gate" commit status and check runs of a PR, from statusCheckRollup.
 function gateOf(rollup) {

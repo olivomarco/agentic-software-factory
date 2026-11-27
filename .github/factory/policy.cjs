@@ -251,7 +251,95 @@ function fixLoopAction({ reviewedHead, copilotThreads, busy, requestedForHead, r
   return "request";
 }
 
+// Stage of an open issue from its labels. The cockpit groups its queue by it
+// and the project board's Status follows it, so both always agree.
+function issueStage(labels) {
+  const has = (n) => labels.includes(n);
+  if (has("agent:failed") || has("factory:failure")) return "attention";
+  if (has("status:in-progress")) return "in-progress";
+  if (has("ready-for-agent")) return "ready";
+  if (has("spec:approved")) return "approved";
+  if (has("spec")) return "spec";
+  if (has("needs-info")) return "needs-info";
+  if (has("ready-for-human")) return "human";
+  if (has("wontfix")) return "wontfix";
+  return "triage";
+}
+
+// Single-select fields of the project board. Status replaces the default
+// Todo / In Progress / Done so the board view, which groups by Status, shows
+// the factory's stages. scripts/setup-repo.sh creates them from this list.
+const PROJECT_FIELDS = {
+  Status: [
+    ["Needs attention", "RED", "A run or the agent failed twice: see the cockpit"],
+    ["Triage", "PURPLE", "New: triage comments, a maintainer decides"],
+    ["Needs info", "ORANGE", "Waiting for the reporter"],
+    ["Spec", "BLUE", "Spec written on the issue: review and approve it"],
+    ["Spec approved", "GREEN", "Split into tickets, being built"],
+    ["Ready for agent", "BLUE", "Waiting for a free agent slot or a blocker"],
+    ["In progress", "YELLOW", "The cloud agent or a person is on it"],
+    ["In review", "PINK", "Pull request open: checks and Copilot review"],
+    ["Needs human", "ORANGE", "High risk or handed back: a person decides"],
+    ["Done", "GREEN", "Merged or closed as completed"],
+    ["Won't fix", "GRAY", "Closed without a change"],
+  ],
+  Kind: [
+    ["Spec", "BLUE", "An issue carrying a spec"],
+    ["Ticket", "PURPLE", "A sub-issue of a spec"],
+    ["Bug", "RED", ""],
+    ["Enhancement", "GREEN", ""],
+    ["Pull request", "GRAY", ""],
+    ["Report", "ORANGE", "A gh-aw failure report"],
+    ["Other", "GRAY", "Not triaged yet"],
+  ],
+  Risk: [
+    ["Low", "GREEN", "Merges automatically when checks and review pass"],
+    ["High", "RED", "Needs a human approval"],
+  ],
+};
+
+const STAGE_STATUS = {
+  attention: "Needs attention",
+  triage: "Triage",
+  "needs-info": "Needs info",
+  spec: "Spec",
+  approved: "Spec approved",
+  ready: "Ready for agent",
+  "in-progress": "In progress",
+  human: "Needs human",
+  wontfix: "Won't fix",
+};
+
+// Project field values for an issue or pull request, as returned by the
+// REST issues API (pull requests carry `pull_request` there). null clears.
+function projectValues(item) {
+  const labels = (item.labels || []).map((l) => (typeof l === "string" ? l : l.name));
+  const has = (n) => labels.includes(n);
+  if (item.pull_request) {
+    let status;
+    if (item.pull_request.merged_at) status = "Done";
+    else if (item.state === "closed") status = "Won't fix";
+    else if (item.draft || /^\[WIP\]/i.test(item.title || "")) status = "In progress";
+    else if (has("needs-human") || has("hold") || (has("risk:high") && !has("human-approved"))) status = "Needs human";
+    else status = "In review";
+    return { Status: status, Kind: "Pull request", Risk: has("risk:high") ? "High" : has("risk:low") ? "Low" : null };
+  }
+  let kind = "Other";
+  if (/^\[aw\]/.test(item.title || "")) kind = "Report";
+  else if (has("spec") || has("spec:approved") || item.sub_issues_summary?.total > 0) kind = "Spec";
+  else if (item.parent_issue_url) kind = "Ticket";
+  else if (has("bug")) kind = "Bug";
+  else if (has("enhancement")) kind = "Enhancement";
+  let status;
+  if (item.state === "closed") status = item.state_reason === "not_planned" || item.state_reason === "duplicate" || has("wontfix") ? "Won't fix" : "Done";
+  else status = STAGE_STATUS[issueStage(labels)];
+  return { Status: status, Kind: kind, Risk: null };
+}
+
 module.exports = {
+  issueStage,
+  PROJECT_FIELDS,
+  projectValues,
   LIMITS,
   SENSITIVE,
   HOLD_LABELS,
