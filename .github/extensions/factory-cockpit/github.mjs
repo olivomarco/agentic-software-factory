@@ -92,7 +92,8 @@ function issueOf(i) {
     reason: i.state_reason || null,
     closedAt: i.closed_at || null,
     labels: names(i.labels),
-    stage: stage(names(i.labels)),
+    // Weekly scorecards are reports, not work: they never enter the triage flow.
+    stage: names(i.labels).includes("factory:scorecard") ? "scorecard" : stage(names(i.labels)),
     assignees: i.assignees.map((a) => a.login),
     blockedBy: i.issue_dependencies_summary?.blocked_by ?? 0,
     subIssues: i.sub_issues_summary?.total ?? 0,
